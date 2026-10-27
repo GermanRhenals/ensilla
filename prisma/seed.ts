@@ -602,7 +602,7 @@ async function main() {
       ...upcoming.map((a) => ({
         userId: a.barberId,
         title: "Nuevo turno confirmado",
-        body: `${clients.find((c) => c.id === a.clientId)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short", timeZone: TZ }).format(a.start)}.`,
+        body: `${clients.find((c) => c.id === a.clientId)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat(SHOP_LOCALE, { dateStyle: "short", timeStyle: "short", timeZone: TZ }).format(a.start)}.`,
         href: "/panel/agenda",
         readAt: rng() < 0.4 ? new Date() : null,
       })),

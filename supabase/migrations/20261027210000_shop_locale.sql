@@ -20,5 +20,4 @@ set timezone = 'America/Bogota',
 where id = 1
   and timezone = 'America/Argentina/Buenos_Aires'
   and currency = 'ARS'
-  and locale = 'es-AR'
   and not exists (select 1 from public.services);

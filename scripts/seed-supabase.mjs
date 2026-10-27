@@ -463,7 +463,7 @@ async function main() {
     ...upcoming.map((a) => ({
       user_id: a.barber_id,
       title: "Nuevo turno confirmado",
-      body: `${clients.find((c) => c.id === a.client_id)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short", timeZone: TZ }).format(new Date(a.start_at))}.`,
+      body: `${clients.find((c) => c.id === a.client_id)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat(SHOP_LOCALE, { dateStyle: "short", timeStyle: "short", timeZone: TZ }).format(new Date(a.start_at))}.`,
       href: "/panel/agenda",
       read_at: rng() < 0.4 ? new Date().toISOString() : null,
     })),
