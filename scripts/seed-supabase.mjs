@@ -12,7 +12,11 @@ if (!url || !serviceKey) {
 const supabase = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const TZ = "America/Argentina/Buenos_Aires";
+const TZ = process.env.SHOP_TIMEZONE ?? "America/Bogota";
+const SHOP_CURRENCY = process.env.SHOP_CURRENCY ?? "COP";
+const SHOP_LOCALE = process.env.SHOP_LOCALE ?? "es-CO";
+const SHOP_WHATSAPP_COUNTRY_CODE =
+  process.env.SHOP_WHATSAPP_COUNTRY_CODE ?? "57";
 
 function mulberry32(seed) {
   let a = seed;
@@ -73,9 +77,9 @@ async function ensureUser(email, password, name) {
 
 async function main() {
   console.log("Creando usuarios demo...");
-  const admin = await ensureUser("admin@ensilla.app", "admin123", "Mateo Fernández");
-  const brunoUser = await ensureUser("bruno@ensilla.app", "barber123", "Bruno Acosta");
-  const valentinaUser = await ensureUser("valentina@ensilla.app", "barber123", "Valentina Ríos");
+  const admin = await ensureUser("admin@ensilla.app", "admin123", "Mateo Restrepo");
+  const brunoUser = await ensureUser("bruno@ensilla.app", "barber123", "Bruno Salazar");
+  const valentinaUser = await ensureUser("valentina@ensilla.app", "barber123", "Valentina Ospina");
 
   console.log("Limpiando datos anteriores...");
   await must(supabase.from("notifications").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "notifications");
@@ -94,13 +98,15 @@ async function main() {
       tagline: "Cortes con memoria",
       description:
         "Una barbería de barrio que se toma el tiempo de conocerte. Agenda simple, atención cuidada y un corte pensado para vos.",
-      address: "Av. Córdoba 3421, Palermo",
-      phone: "+54 11 5555-0100",
-      whatsapp: "5491155550100",
+      address: "Cra. 11 #85-42, Bogotá",
+      phone: "+57 320 555 0100",
+      whatsapp: "573205550100",
       email: "hola@ensilla.app",
       instagram: "ensilla.barbershop",
-      currency: "ARS",
+      currency: SHOP_CURRENCY,
       timezone: TZ,
+      locale: SHOP_LOCALE,
+      whatsapp_country_code: SHOP_WHATSAPP_COUNTRY_CODE,
       slot_step_min: 15,
       buffer_min: 10,
       lead_time_min: 60,
@@ -123,21 +129,21 @@ async function main() {
   );
 
   const profiles = [
-    { id: admin.id, name: "Mateo Fernández", role: "ADMIN", phone: "+54 11 5555-0101", bio: "Fundador de En-silla. Especialista en clásicos y fades limpios.", color: "#c2703d", active: true },
-    { id: brunoUser.id, name: "Bruno Acosta", role: "BARBER", phone: "+54 11 5555-0102", bio: "Texturas, rizos y degradados con personalidad.", color: "#3f7d6c", active: true },
-    { id: valentinaUser.id, name: "Valentina Ríos", role: "BARBER", phone: "+54 11 5555-0103", bio: "Cortes con movimiento, color y asesoramiento de imagen.", color: "#7c5cbf", active: true },
+    { id: admin.id, name: "Mateo Restrepo", role: "ADMIN", phone: "+57 320 555 0101", bio: "Fundador de En-silla. Especialista en clásicos y fades limpios.", color: "#c2703d", active: true },
+    { id: brunoUser.id, name: "Bruno Salazar", role: "BARBER", phone: "+57 320 555 0102", bio: "Texturas, rizos y degradados con personalidad.", color: "#3f7d6c", active: true },
+    { id: valentinaUser.id, name: "Valentina Ospina", role: "BARBER", phone: "+57 320 555 0103", bio: "Cortes con movimiento, color y asesoramiento de imagen.", color: "#7c5cbf", active: true },
   ];
   for (const profile of profiles) {
     await must(supabase.from("profiles").update(profile).eq("id", profile.id), `profile ${profile.name}`);
   }
 
   const serviceRows = [
-    { name: "Corte clásico", description: "Tijera y máquina, lavado y peinado final.", duration_min: 45, price_cents: 1200000, sort_order: 1 },
-    { name: "Fade / degradado", description: "Degradado a navaja con definición de contornos.", duration_min: 60, price_cents: 1500000, sort_order: 2 },
-    { name: "Corte + barba", description: "El combo completo: corte a medida y barba perfilada.", duration_min: 75, price_cents: 2000000, sort_order: 3 },
-    { name: "Arreglo de barba", description: "Perfilado, navaja y aceites para dejar la barba impecable.", duration_min: 30, price_cents: 800000, sort_order: 4 },
-    { name: "Corte niño", description: "Corte cómodo y rápido, con paciencia de sobra.", duration_min: 30, price_cents: 900000, sort_order: 5 },
-    { name: "Afeitado a navaja", description: "Ritual completo con toalla caliente y bálsamo.", duration_min: 40, price_cents: 1100000, sort_order: 6 },
+    { name: "Corte clásico", description: "Tijera y máquina, lavado y peinado final.", duration_min: 45, price_cents: 3500000, sort_order: 1 },
+    { name: "Fade / degradado", description: "Degradado a navaja con definición de contornos.", duration_min: 60, price_cents: 4000000, sort_order: 2 },
+    { name: "Corte + barba", description: "El combo completo: corte a medida y barba perfilada.", duration_min: 75, price_cents: 5500000, sort_order: 3 },
+    { name: "Arreglo de barba", description: "Perfilado, navaja y aceites para dejar la barba impecable.", duration_min: 30, price_cents: 2500000, sort_order: 4 },
+    { name: "Corte niño", description: "Corte cómodo y rápido, con paciencia de sobra.", duration_min: 30, price_cents: 3000000, sort_order: 5 },
+    { name: "Afeitado a navaja", description: "Ritual completo con toalla caliente y bálsamo.", duration_min: 40, price_cents: 3000000, sort_order: 6 },
   ];
   const services = [];
   for (const row of serviceRows) {
@@ -147,9 +153,9 @@ async function main() {
 
   const clientsData = [
     {
-      name: "Tomás Aguirre",
-      phone: "11 4412-7788",
-      email: "tomas.aguirre@mail.com",
+      name: "Andrés Mejía",
+      phone: "300 555 0101",
+      email: "andres.mejia@mail.com",
       hairType: "Ondulado medio",
       preferredStyle: "Fade bajo con textura arriba",
       products: "Pomada mate",
@@ -162,9 +168,9 @@ async function main() {
       ],
     },
     {
-      name: "Julián Sosa",
-      phone: "11 5039-2210",
-      email: "julian.sosa@mail.com",
+      name: "Julián Cárdenas",
+      phone: "301 555 0102",
+      email: "julian.cardenas@mail.com",
       hairType: "Lacio grueso",
       preferredStyle: "Clásico con raya al costado",
       products: "Cera de brillo",
@@ -176,9 +182,9 @@ async function main() {
       ],
     },
     {
-      name: "Martina López",
-      phone: "11 6788-1042",
-      email: "martina.lopez@mail.com",
+      name: "Mariana López",
+      phone: "302 555 0103",
+      email: "mariana.lopez@mail.com",
       hairType: "Liso fino",
       preferredStyle: "Bob con capas largas",
       products: "Texturizador en spray",
@@ -191,9 +197,9 @@ async function main() {
       ],
     },
     {
-      name: "Ramiro Díaz",
-      phone: "11 3321-9098",
-      email: "ramiro.diaz@mail.com",
+      name: "Ramiro Quintero",
+      phone: "303 555 0104",
+      email: "ramiro.quintero@mail.com",
       hairType: "Crespo",
       preferredStyle: "Degradado alto con línea",
       products: "Crema para rizos",
@@ -206,9 +212,9 @@ async function main() {
       ],
     },
     {
-      name: "Sofía Benítez",
-      phone: "11 4455-6712",
-      email: "sofia.benitez@mail.com",
+      name: "Sofía Arango",
+      phone: "304 555 0105",
+      email: "sofia.arango@mail.com",
       hairType: "Ondulado fino",
       preferredStyle: "Long bob con flequillo",
       products: "Spray salino",
@@ -220,9 +226,9 @@ async function main() {
       ],
     },
     {
-      name: "Nicolás Ferreyra",
-      phone: "11 5512-3344",
-      email: "nico.ferreyra@mail.com",
+      name: "Nicolás Vélez",
+      phone: "305 555 0106",
+      email: "nicolas.velez@mail.com",
       hairType: "Lacio",
       preferredStyle: "Buzz cut con fade",
       products: "Gel mate",
@@ -234,9 +240,9 @@ async function main() {
       ],
     },
     {
-      name: "Camila Ruiz",
-      phone: "11 6098-2277",
-      email: "camila.ruiz@mail.com",
+      name: "Camila Torres",
+      phone: "306 555 0107",
+      email: "camila.torres@mail.com",
       hairType: "Rizado",
       preferredStyle: "Curly shag",
       products: "Leave-in sin sulfatos",
@@ -249,9 +255,9 @@ async function main() {
       ],
     },
     {
-      name: "Facundo Molina",
-      phone: "11 4477-1166",
-      email: "facu.molina@mail.com",
+      name: "Felipe Molina",
+      phone: "307 555 0108",
+      email: "felipe.molina@mail.com",
       hairType: "Lacio grueso",
       preferredStyle: "Pompadour moderno",
       products: "Pomada clásica",
@@ -264,9 +270,9 @@ async function main() {
       ],
     },
     {
-      name: "Agustina Vega",
-      phone: "11 5123-8899",
-      email: "agustina.vega@mail.com",
+      name: "Daniela Vega",
+      phone: "308 555 0109",
+      email: "daniela.vega@mail.com",
       hairType: "Ondulado",
       preferredStyle: "Capas largas con movimiento",
       products: "Aceite ligero",
@@ -278,9 +284,9 @@ async function main() {
       ],
     },
     {
-      name: "Bruno Salas",
-      phone: "11 3344-7788",
-      email: "bruno.salas@mail.com",
+      name: "Sebastián Salas",
+      phone: "309 555 0110",
+      email: "sebastian.salas@mail.com",
       hairType: "Afro",
       preferredStyle: "Taper fade",
       products: "Crema definidora",
@@ -293,8 +299,8 @@ async function main() {
     },
     {
       name: "Santiago Ponce",
-      phone: "11 6677-4455",
-      email: "santi.ponce@mail.com",
+      phone: "310 555 0111",
+      email: "santiago.ponce@mail.com",
       hairType: "Lacio fino",
       preferredStyle: "Mullet moderno",
       products: "Texturizador",
@@ -306,9 +312,9 @@ async function main() {
       ],
     },
     {
-      name: "Valentín Correa",
-      phone: "11 5599-0011",
-      email: "valen.correa@mail.com",
+      name: "Valeria Correa",
+      phone: "311 555 0112",
+      email: "valeria.correa@mail.com",
       hairType: "Crespo",
       preferredStyle: "Corte con diseño",
       products: "Pomada",

@@ -184,7 +184,7 @@ function AppointmentDetailContent() {
             </h1>
             <p className="mt-1 text-sm text-stone-500">
               {service.name} · {service.durationMin} min ·{" "}
-              {formatMoney(appointment.priceCents, shop.currency)}
+              {formatMoney(appointment.priceCents, shop.currency, shop.locale)}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -200,6 +200,7 @@ function AppointmentDetailContent() {
               href={whatsappLink(
                 client.phone,
                 `Hola ${client.name.split(" ")[0]}! Te recordamos tu turno de ${service.name} para el ${formatDate(start, "d/M", tz)} a las ${formatTime(start, tz)} en ${shop.name}.`,
+                shop.whatsappCountryCode,
               )}
               target="_blank"
               rel="noreferrer"
@@ -260,7 +261,7 @@ function AppointmentDetailContent() {
               Precio
             </p>
             <p className="mt-1 text-sm font-medium">
-              {formatMoney(appointment.priceCents, shop.currency)}
+              {formatMoney(appointment.priceCents, shop.currency, shop.locale)}
             </p>
           </div>
           <div className="col-span-2 px-4 py-3.5 sm:col-span-1">

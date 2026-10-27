@@ -107,6 +107,7 @@ function BookingContent() {
             name: shop.name,
             timezone: shop.timezone,
             currency: shop.currency,
+            locale: shop.locale,
             whatsapp: shop.whatsapp,
           }}
           initialServiceId={params.get("service") ?? undefined}

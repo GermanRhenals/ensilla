@@ -100,7 +100,7 @@ function ServiceDetailContent() {
           </h1>
           <p className="text-xs text-stone-500">
             {service.durationMin} min ·{" "}
-            {formatMoney(service.priceCents, shop.currency)}
+            {formatMoney(service.priceCents, shop.currency, shop.locale)}
           </p>
         </div>
       </div>

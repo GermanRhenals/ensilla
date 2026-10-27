@@ -236,7 +236,7 @@ function ClientsContent() {
                           : "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-medium">
-                        {formatMoney(stats?.spent ?? 0, shop.currency)}
+                        {formatMoney(stats?.spent ?? 0, shop.currency, shop.locale)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link

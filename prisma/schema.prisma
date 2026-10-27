@@ -17,8 +17,10 @@ model ShopSetting {
   whatsapp        String?
   email           String?
   instagram       String?
-  currency        String   @default("ARS")
-  timezone        String   @default("America/Argentina/Buenos_Aires")
+  currency        String   @default("COP")
+  timezone        String   @default("America/Bogota")
+  locale          String   @default("es-CO")
+  whatsappCountryCode String @default("57")
   slotStepMin     Int      @default(15)
   bufferMin       Int      @default(10)
   leadTimeMin     Int      @default(60)

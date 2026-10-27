@@ -143,7 +143,7 @@ export default function ProfilePage() {
                 maxLength={30}
                 defaultValue={user.phone ?? ""}
                 className="input"
-                placeholder="11 5555-0101"
+                placeholder="300 555 0101"
               />
             </div>
             <div className="sm:col-span-2">

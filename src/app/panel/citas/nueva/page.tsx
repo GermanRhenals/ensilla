@@ -192,7 +192,7 @@ function NewAppointmentContent() {
                   id="clientPhone"
                   name="clientPhone"
                   className="input"
-                  placeholder="11 5555-0101"
+                  placeholder="300 555 0101"
                   inputMode="tel"
                   maxLength={30}
                 />
@@ -250,7 +250,7 @@ function NewAppointmentContent() {
                   {services.map((service) => (
                     <option key={service.id} value={service.id}>
                       {service.name} · {service.durationMin} min ·{" "}
-                      {formatMoney(service.priceCents, shop.currency)}
+                      {formatMoney(service.priceCents, shop.currency, shop.locale)}
                     </option>
                   ))}
                 </select>

@@ -38,6 +38,7 @@ type ShopInfo = {
   name: string;
   timezone: string;
   currency: string;
+  locale: string;
   whatsapp: string | null;
 };
 
@@ -112,13 +113,13 @@ export function BookingWizard({
 
   const timeFormatter = useMemo(
     () =>
-      new Intl.DateTimeFormat("es-AR", {
+      new Intl.DateTimeFormat(shop.locale, {
         hour: "2-digit",
         minute: "2-digit",
         hourCycle: "h23",
         timeZone: shop.timezone,
       }),
-    [shop.timezone],
+    [shop.locale, shop.timezone],
   );
 
   const slotRequestKey = `${serviceId}|${barberId}|${dayKey}`;
@@ -287,7 +288,7 @@ export function BookingWizard({
                       {item.description ?? "Un servicio pensado para vos."}
                     </p>
                     <p className="mt-3 font-display text-lg font-semibold">
-                      {formatMoney(item.priceCents, shop.currency)}
+                      {formatMoney(item.priceCents, shop.currency, shop.locale)}
                     </p>
                   </button>
                 ))}
@@ -540,7 +541,7 @@ export function BookingWizard({
                 </div>
                 <p className="mt-1 text-xs text-stone-500">
                   {service.durationMin} minutos ·{" "}
-                  {formatMoney(service.priceCents, shop.currency)}
+                  {formatMoney(service.priceCents, shop.currency, shop.locale)}
                 </p>
               </div>
 
@@ -573,7 +574,7 @@ export function BookingWizard({
                         setForm({ ...form, name: event.target.value })
                       }
                       className="input"
-                      placeholder="Tomás Aguirre"
+                      placeholder="Andrés Mejía"
                       autoComplete="name"
                     />
                   </div>
@@ -591,7 +592,7 @@ export function BookingWizard({
                         setForm({ ...form, phone: event.target.value })
                       }
                       className="input"
-                      placeholder="11 5555-0101"
+                      placeholder="300 555 0101"
                       autoComplete="tel"
                       inputMode="tel"
                     />
@@ -740,7 +741,7 @@ export function BookingWizard({
               <span className="text-cream/40">Total</span>
               <span className="font-display text-2xl font-semibold">
                 {service
-                  ? formatMoney(service.priceCents, shop.currency)
+                  ? formatMoney(service.priceCents, shop.currency, shop.locale)
                   : "—"}
               </span>
             </div>

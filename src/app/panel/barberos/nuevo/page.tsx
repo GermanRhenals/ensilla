@@ -110,7 +110,7 @@ export default function NewBarberPage() {
               name="phone"
               maxLength={30}
               className="input"
-              placeholder="11 5555-0101"
+              placeholder="300 555 0101"
             />
           </div>
           <div>

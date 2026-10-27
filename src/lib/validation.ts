@@ -142,9 +142,21 @@ export const shopSchema = z.object({
   address: optionalText(200),
   phone: optionalText(40),
   whatsapp: optionalText(40),
+  whatsappCountryCode: z
+    .string()
+    .trim()
+    .regex(/^\d{1,4}$/, "Usá el código de país sin +."),
   email: optionalEmail.optional(),
   instagram: optionalText(80),
-  currency: z.string().trim().min(2).max(6),
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, "Usá un código ISO de 3 letras."),
+  locale: z
+    .string()
+    .trim()
+    .regex(/^[a-z]{2}(-[A-Z]{2})?$/, "Usá un locale válido, ej. es-MX."),
   timezone: z.string().trim().min(3).max(80),
   slotStepMin: z.coerce.number().int().min(5).max(60),
   bufferMin: z.coerce.number().int().min(0).max(120),

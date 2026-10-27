@@ -94,8 +94,8 @@ export default function DashboardPage() {
         />
         <StatCard
           label="Ingresos de hoy"
-          value={formatMoney(today.revenueTodayCents, shop.currency)}
-          hint={`${formatMoney(today.expectedTodayCents, shop.currency)} estimado`}
+          value={formatMoney(today.revenueTodayCents, shop.currency, shop.locale)}
+          hint={`${formatMoney(today.expectedTodayCents, shop.currency, shop.locale)} estimado`}
           icon={<Banknote className="size-4" />}
           tone="copper"
         />
@@ -288,7 +288,7 @@ export default function DashboardPage() {
                   Ingresos
                 </p>
                 <p className="mt-1 font-display text-xl font-semibold">
-                  {formatMoney(overview.revenueCents, shop.currency)}
+                  {formatMoney(overview.revenueCents, shop.currency, shop.locale)}
                 </p>
               </div>
               <div className="rounded-xl bg-sand/60 p-3">
@@ -306,7 +306,7 @@ export default function DashboardPage() {
                   Ticket
                 </p>
                 <p className="mt-1 font-display text-xl font-semibold">
-                  {formatMoney(overview.avgTicketCents, shop.currency)}
+                  {formatMoney(overview.avgTicketCents, shop.currency, shop.locale)}
                 </p>
               </div>
               <div className="rounded-xl bg-sand/60 p-3">

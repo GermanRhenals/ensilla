@@ -230,9 +230,9 @@ function AgendaContent() {
           },
           {
             label: "Estimado",
-            value: formatMoney(agenda.totals.estimatedCents, shop.currency),
+            value: formatMoney(agenda.totals.estimatedCents, shop.currency, shop.locale),
             icon: Banknote,
-            hint: `${formatMoney(agenda.totals.completedCents, shop.currency)} cobrados`,
+            hint: `${formatMoney(agenda.totals.completedCents, shop.currency, shop.locale)} cobrados`,
           },
           {
             label: "Ocupación",

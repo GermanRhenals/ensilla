@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Clock3, Globe2, Loader2, Save, Store } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
-import { WEEKDAY_LABELS } from "@/lib/constants";
+import { SPANISH_LOCALES, WEEKDAY_LABELS } from "@/lib/constants";
 import {
   fetchBusinessHours,
   fetchShop,
@@ -49,9 +49,15 @@ export default function SettingsPage() {
         address: String(formData.get("address") || "").trim() || null,
         phone: String(formData.get("phone") || "").trim() || null,
         whatsapp: String(formData.get("whatsapp") || "").trim() || null,
+        whatsapp_country_code: String(
+          formData.get("whatsappCountryCode") || "",
+        ).replace(/\D/g, ""),
         email: String(formData.get("email") || "").trim() || null,
         instagram: String(formData.get("instagram") || "").trim() || null,
-        currency: String(formData.get("currency") || "ARS").trim(),
+        currency: String(formData.get("currency") || "")
+          .trim()
+          .toUpperCase(),
+        locale: String(formData.get("locale") || "es").trim(),
         timezone: String(formData.get("timezone") || "").trim(),
         slot_step_min: Number(formData.get("slotStepMin") || 15),
         buffer_min: Number(formData.get("bufferMin") || 0),
@@ -209,8 +215,26 @@ export default function SettingsPage() {
                 maxLength={40}
                 defaultValue={shop.whatsapp ?? ""}
                 className="input"
-                placeholder="+54 9 11 ..."
+                placeholder="+57 320 ..."
               />
+            </div>
+            <div>
+              <label className="label" htmlFor="whatsappCountryCode">
+                Código de país (WhatsApp)
+              </label>
+              <input
+                id="whatsappCountryCode"
+                name="whatsappCountryCode"
+                required
+                inputMode="numeric"
+                pattern="[0-9]{1,4}"
+                maxLength={4}
+                defaultValue={shop.whatsappCountryCode}
+                className="input"
+              />
+              <p className="mt-1 text-[11px] text-stone-400">
+                Sin +. Ej: 57 Colombia, 54 Argentina, 52 México.
+              </p>
             </div>
             <div>
               <label className="label" htmlFor="email">
@@ -246,11 +270,38 @@ export default function SettingsPage() {
                 id="currency"
                 name="currency"
                 required
-                minLength={2}
-                maxLength={6}
+                pattern="[A-Za-z]{3}"
+                title="Usá el código ISO de 3 letras, por ejemplo ARS, MXN o EUR."
+                maxLength={3}
                 defaultValue={shop.currency}
-                className="input"
+                className="input uppercase"
               />
+              <p className="mt-1 text-[11px] text-stone-400">
+                Código ISO: ARS, MXN, EUR, USD...
+              </p>
+            </div>
+            <div>
+              <label className="label" htmlFor="locale">
+                Formato regional
+              </label>
+              <select
+                id="locale"
+                name="locale"
+                defaultValue={shop.locale}
+                className="select"
+              >
+                {!SPANISH_LOCALES.some(
+                  (option) => option.value === shop.locale,
+                ) && <option value={shop.locale}>{shop.locale}</option>}
+                {SPANISH_LOCALES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-stone-400">
+                Define cómo se muestran fechas y precios.
+              </p>
             </div>
           </div>
 
@@ -275,8 +326,8 @@ export default function SettingsPage() {
                   className="input"
                 />
                 <p className="mt-1 text-[11px] text-stone-400">
-                  Ej: America/Argentina/Buenos_Aires, America/Santiago,
-                  Europe/Madrid.
+                  La zona del local, sin importar el país. Ej:
+                  America/Mexico_City, America/Bogota, Europe/Madrid.
                 </p>
               </div>
               <div>

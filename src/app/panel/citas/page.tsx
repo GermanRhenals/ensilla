@@ -269,7 +269,7 @@ function AppointmentsContent() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
-                      {formatMoney(appointment.priceCents, shop.currency)}
+                      {formatMoney(appointment.priceCents, shop.currency, shop.locale)}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={appointment.status} />

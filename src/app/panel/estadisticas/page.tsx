@@ -111,14 +111,14 @@ function StatsContent() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Ingresos"
-          value={formatMoney(overview.revenueCents, shop.currency)}
+          value={formatMoney(overview.revenueCents, shop.currency, shop.locale)}
           hint={`${overview.completed} cortes completados`}
           icon={<Banknote className="size-4" />}
           tone="copper"
         />
         <StatCard
           label="Ticket promedio"
-          value={formatMoney(overview.avgTicketCents, shop.currency)}
+          value={formatMoney(overview.avgTicketCents, shop.currency, shop.locale)}
           hint="Por visita completada"
           icon={<TrendingUp className="size-4" />}
         />
@@ -145,7 +145,7 @@ function StatsContent() {
               <h2 className="font-semibold">Cortes por día</h2>
               <p className="text-xs text-stone-500">
                 Últimos {overview.days} días · ingresos{" "}
-                {formatMoney(overview.revenueCents, shop.currency)}
+                {formatMoney(overview.revenueCents, shop.currency, shop.locale)}
               </p>
             </div>
             <CheckCircle2 className="size-4 text-sage" />
@@ -156,7 +156,7 @@ function StatsContent() {
               <div
                 key={day.key}
                 className="group flex h-full min-w-0 flex-1 flex-col justify-end"
-                title={`${day.label}: ${day.count} cortes · ${formatMoney(day.revenueCents, shop.currency)}`}
+                title={`${day.label}: ${day.count} cortes · ${formatMoney(day.revenueCents, shop.currency, shop.locale)}`}
               >
                 <div
                   className={`w-full rounded-t-[3px] transition group-hover:bg-copper ${
@@ -235,7 +235,7 @@ function StatsContent() {
                   </span>
                   <span className="text-xs text-stone-400">
                     {service.count} ·{" "}
-                    {formatMoney(service.revenueCents, shop.currency)}
+                    {formatMoney(service.revenueCents, shop.currency, shop.locale)}
                   </span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sand">
@@ -280,7 +280,7 @@ function StatsContent() {
                   </span>
                   <span className="text-xs text-stone-400">
                     {barber.count} ·{" "}
-                    {formatMoney(barber.revenueCents, shop.currency)}
+                    {formatMoney(barber.revenueCents, shop.currency, shop.locale)}
                   </span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sand">

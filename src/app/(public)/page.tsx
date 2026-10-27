@@ -45,17 +45,17 @@ const steps = [
 
 const testimonials = [
   {
-    name: "Tomás A.",
+    name: "Andrés M.",
     text: "Siempre me acuerdo de pedir lo mismo y nunca me acuerdo cómo se llamaba. Ahora está en mi ficha y el corte sale igual de bien.",
     detail: "Cliente desde 2023",
   },
   {
-    name: "Camila R.",
+    name: "Camila T.",
     text: "Reservé desde el celular en dos minutos. Llegué y me estaban esperando: cero fila, cero explicaciones repetidas.",
     detail: "Primera visita",
   },
   {
-    name: "Julián S.",
+    name: "Julián C.",
     text: "Me propusieron un cambio chico para la próxima y me encantó. Se nota que anotan lo que uno les cuenta.",
     detail: "Cliente frecuente",
   },
@@ -92,7 +92,7 @@ export default function LandingPage() {
           <div className="animate-rise">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cream/70">
               <span className="size-1.5 rounded-full bg-amber" />
-              Agenda online · {shop.address?.split(",")[1]?.trim() ?? "Palermo"}
+              Agenda online · {shop.address?.split(",")[1]?.trim() ?? "Bogotá"}
             </span>
 
             <h1 className="mt-6 font-display text-5xl leading-[0.98] tracking-tight sm:text-6xl lg:text-7xl">
@@ -158,16 +158,16 @@ export default function LandingPage() {
                     <p className="text-xs text-stone-500">75 minutos · con Bruno</p>
                   </div>
                   <p className="font-display text-xl font-semibold">
-                    {formatMoney(2000000, shop.currency)}
+                    {formatMoney(5500000, shop.currency, shop.locale)}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3 rounded-xl bg-sand/70 p-3">
                   <span className="flex size-10 items-center justify-center rounded-full bg-ink text-sm font-semibold text-cream">
-                    TA
+                    AM
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">Tomás Aguirre</p>
+                    <p className="text-sm font-medium">Andrés Mejía</p>
                     <p className="truncate text-xs text-stone-500">
                       Ondulado medio · fade bajo con textura
                     </p>
@@ -281,7 +281,7 @@ export default function LandingPage() {
               </p>
               <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
                 <span className="font-display text-lg font-semibold">
-                  {formatMoney(service.priceCents, shop.currency)}
+                  {formatMoney(service.priceCents, shop.currency, shop.locale)}
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-copper">
                   Reservar
@@ -439,10 +439,10 @@ export default function LandingPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="flex size-11 items-center justify-center rounded-full bg-amber/20 text-sm font-semibold text-amber">
-                    CR
+                    CT
                   </span>
                   <div>
-                    <p className="font-semibold">Camila Ruiz</p>
+                    <p className="font-semibold">Camila Torres</p>
                     <p className="text-xs text-cream/50">
                       Cliente desde hace 2 años
                     </p>

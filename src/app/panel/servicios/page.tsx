@@ -210,7 +210,7 @@ export default function ServicesPage() {
                     </p>
                     <p className="mt-1 text-[11px] text-stone-400">
                       {service.durationMin} min ·{" "}
-                      {formatMoney(service.priceCents, shop.currency)}
+                      {formatMoney(service.priceCents, shop.currency, shop.locale)}
                     </p>
                   </div>
                 </div>

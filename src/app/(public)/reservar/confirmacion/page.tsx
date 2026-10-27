@@ -145,7 +145,7 @@ function ConfirmationContent() {
               <p className="font-medium">{booking.service.name}</p>
             </div>
             <p className="text-sm font-semibold">
-              {formatMoney(booking.price_cents, shop.currency)}
+              {formatMoney(booking.price_cents, shop.currency, shop.locale)}
             </p>
           </div>
           <div className="flex items-center gap-3 px-5 py-4">
@@ -199,6 +199,7 @@ function ConfirmationContent() {
           href={whatsappLink(
             shop.whatsapp ?? shop.phone ?? "",
             `Hola! Reservé un turno para el ${formatDate(start, "d/M", tz)} a las ${formatTime(start, tz)}.`,
+            shop.whatsappCountryCode,
           )}
           target="_blank"
           rel="noreferrer"

@@ -1,4 +1,9 @@
-import { SHOP_TIMEZONE } from "./constants";
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_LOCALE,
+  DEFAULT_TIMEZONE,
+  DEFAULT_WHATSAPP_COUNTRY_CODE,
+} from "./constants";
 import {
   addDaysToKey,
   parseDateKey,
@@ -32,8 +37,10 @@ export const FALLBACK_SHOP: Shop = {
   whatsapp: null,
   email: null,
   instagram: null,
-  currency: "ARS",
-  timezone: SHOP_TIMEZONE,
+  currency: DEFAULT_CURRENCY,
+  timezone: DEFAULT_TIMEZONE,
+  locale: DEFAULT_LOCALE,
+  whatsappCountryCode: DEFAULT_WHATSAPP_COUNTRY_CODE,
   slotStepMin: 15,
   bufferMin: 10,
   leadTimeMin: 60,
@@ -189,8 +196,11 @@ export async function fetchShop(): Promise<Shop> {
     whatsapp: nullableText(data.whatsapp),
     email: nullableText(data.email),
     instagram: nullableText(data.instagram),
-    currency: text(data.currency) || "ARS",
-    timezone: text(data.timezone) || SHOP_TIMEZONE,
+    currency: text(data.currency) || DEFAULT_CURRENCY,
+    timezone: text(data.timezone) || DEFAULT_TIMEZONE,
+    locale: text(data.locale) || DEFAULT_LOCALE,
+    whatsappCountryCode:
+      text(data.whatsapp_country_code) || DEFAULT_WHATSAPP_COUNTRY_CODE,
     slotStepMin: numberValue(data.slot_step_min),
     bufferMin: numberValue(data.buffer_min),
     leadTimeMin: numberValue(data.lead_time_min),
@@ -341,7 +351,7 @@ export async function fetchAppointments({
   status,
   barberId,
   query,
-  timezone = SHOP_TIMEZONE,
+  timezone = DEFAULT_TIMEZONE,
 }: {
   view: string;
   status: string;

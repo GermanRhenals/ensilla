@@ -23,6 +23,8 @@ export type Shop = {
   instagram: string | null;
   currency: string;
   timezone: string;
+  locale: string;
+  whatsappCountryCode: string;
   slotStepMin: number;
   bufferMin: number;
   leadTimeMin: number;

@@ -192,6 +192,7 @@ function ClientDetailContent() {
             href={whatsappLink(
               client.phone,
               `Hola ${client.name.split(" ")[0]}! Te escribimos de ${shop.name}.`,
+              shop.whatsappCountryCode,
             )}
             target="_blank"
             rel="noreferrer"
@@ -265,7 +266,7 @@ function ClientDetailContent() {
             { label: "Visitas completadas", value: completed.length },
             {
               label: "Total gastado",
-              value: formatMoney(totalSpent, shop.currency),
+              value: formatMoney(totalSpent, shop.currency, shop.locale),
             },
             {
               label: "Última visita",
@@ -512,7 +513,7 @@ function ClientDetailContent() {
                           {appointment.barber?.name.split(" ")[0]}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2.5">
-                          {formatMoney(appointment.priceCents, shop.currency)}
+                          {formatMoney(appointment.priceCents, shop.currency, shop.locale)}
                         </td>
                         <td className="px-4 py-2.5">
                           <StatusBadge status={appointment.status} />
