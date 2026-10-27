@@ -1,33 +1,54 @@
-import type { Metadata } from "next";
-import { CalendarCheck, Clock3, MapPin } from "lucide-react";
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { CalendarCheck, Clock3, Loader2, MapPin } from "lucide-react";
 import { BookingWizard } from "@/components/booking/booking-wizard";
+import {
+  fetchBusinessHours,
+  fetchPublicBarbers,
+  fetchServices,
+  fetchShop,
+} from "@/lib/data";
 import { nextDays } from "@/lib/datetime";
-import { getActiveBarbers, getBusinessHours, getShop } from "@/lib/shop";
-import { prisma } from "@/lib/prisma";
+import { useAsync } from "@/lib/use-async";
 
-export const dynamic = "force-dynamic";
+export default function BookingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-24 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <BookingContent />
+    </Suspense>
+  );
+}
 
-export const metadata: Metadata = {
-  title: "Reservar turno",
-  description: "Elegí servicio, barbero y horario en menos de un minuto.",
-};
+function BookingContent() {
+  const params = useSearchParams();
+  const { data } = useAsync(async () => {
+    const [shop, barbers, hours, services] = await Promise.all([
+      fetchShop(),
+      fetchPublicBarbers(),
+      fetchBusinessHours(),
+      fetchServices(true),
+    ]);
+    return { shop, barbers, hours, services };
+  }, "booking");
 
-export default async function BookingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ service?: string; barber?: string }>;
-}) {
-  const params = await searchParams;
-  const [shop, barbers, hours, services] = await Promise.all([
-    getShop(),
-    getActiveBarbers(),
-    getBusinessHours(),
-    prisma.service.findMany({
-      where: { active: true },
-      orderBy: { sortOrder: "asc" },
-    }),
-  ]);
+  if (!data) {
+    return (
+      <div className="flex justify-center py-24 text-stone-400">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
 
+  const { shop, barbers, hours, services } = data;
+  const activeBarbers = barbers.filter((barber) => barber.active);
   const closedWeekdays = [0, 1, 2, 3, 4, 5, 6].filter(
     (weekday) => !hours.some((hour) => hour.weekday === weekday && hour.active),
   );
@@ -75,7 +96,7 @@ export default async function BookingPage({
             durationMin: service.durationMin,
             priceCents: service.priceCents,
           }))}
-          barbers={barbers.map((barber) => ({
+          barbers={activeBarbers.map((barber) => ({
             id: barber.id,
             name: barber.name,
             color: barber.color,
@@ -88,8 +109,8 @@ export default async function BookingPage({
             currency: shop.currency,
             whatsapp: shop.whatsapp,
           }}
-          initialServiceId={params.service}
-          initialBarberId={params.barber}
+          initialServiceId={params.get("service") ?? undefined}
+          initialBarberId={params.get("barber") ?? undefined}
         />
       </div>
     </div>

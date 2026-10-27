@@ -1,21 +1,39 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, LockKeyhole, Scissors } from "lucide-react";
-import { loginAction } from "@/app/actions/auth";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Check, Loader2, LockKeyhole, Scissors } from "lucide-react";
 import { DemoLogin } from "@/components/auth/demo-login";
 import { Flash } from "@/components/ui/flash";
 import { Logo } from "@/components/ui/logo";
+import { supabase } from "@/lib/supabase";
 
-export const metadata: Metadata = {
-  title: "Ingresar",
-};
+function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/panel";
+  const [email, setEmail] = useState(searchParams.get("email") ?? "");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(
+    searchParams.get("error") ?? null,
+  );
+  const [loading, setLoading] = useState(false);
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string; email?: string; next?: string }>;
-}) {
-  const params = await searchParams;
+  async function enter(nextEmail: string, nextPassword: string) {
+    setError(null);
+    setLoading(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: nextEmail,
+      password: nextPassword,
+    });
+    if (authError) {
+      setError("Email o contraseña incorrectos.");
+      setLoading(false);
+      return;
+    }
+    router.replace(next.startsWith("/") ? next : "/panel");
+  }
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_0.95fr]">
@@ -78,20 +96,25 @@ export default async function LoginPage({
             Ingresá con tu cuenta para abrir la agenda de hoy.
           </p>
 
-          <Flash error={params.error} className="mt-5" />
+          <Flash error={error ?? undefined} className="mt-5" />
 
-          <form id="login-form" action={loginAction} className="mt-5 space-y-4">
-            <input type="hidden" name="next" value={params.next ?? "/panel"} />
+          <form
+            className="mt-5 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              enter(email, password);
+            }}
+          >
             <div>
               <label className="label" htmlFor="email">
                 Email
               </label>
               <input
                 id="email"
-                name="email"
                 type="email"
                 required
-                defaultValue={params.email ?? ""}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 className="input"
                 placeholder="vos@ensilla.app"
                 autoComplete="email"
@@ -103,16 +126,25 @@ export default async function LoginPage({
               </label>
               <input
                 id="password"
-                name="password"
                 type="password"
                 required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
                 className="input"
                 placeholder="••••••••"
                 autoComplete="current-password"
               />
             </div>
-            <button type="submit" className="btn-primary w-full py-3">
-              <LockKeyhole className="size-4" />
+            <button
+              type="submit"
+              className="btn-primary w-full py-3"
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <LockKeyhole className="size-4" />
+              )}
               Entrar al panel
             </button>
           </form>
@@ -146,6 +178,11 @@ export default async function LoginPage({
                   password: "barber123",
                 },
               ]}
+              onSelect={(nextEmail, nextPassword) => {
+                setEmail(nextEmail);
+                setPassword(nextPassword);
+                enter(nextEmail, nextPassword);
+              }}
             />
           </div>
 
@@ -159,5 +196,13 @@ export default async function LoginPage({
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

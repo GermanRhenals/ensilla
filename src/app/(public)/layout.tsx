@@ -1,16 +1,23 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
 import { PublicFooter } from "@/components/public/public-footer";
 import { PublicHeader } from "@/components/public/public-header";
-import { getBusinessHours, getShop } from "@/lib/shop";
+import { FALLBACK_SHOP, fetchBusinessHours, fetchShop } from "@/lib/data";
+import type { BusinessHour, Shop } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+export default function PublicLayout({ children }: { children: ReactNode }) {
+  const [shop, setShop] = useState<Shop>(FALLBACK_SHOP);
+  const [hours, setHours] = useState<BusinessHour[]>([]);
 
-export default async function PublicLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const [shop, hours] = await Promise.all([getShop(), getBusinessHours()]);
+  useEffect(() => {
+    Promise.all([fetchShop(), fetchBusinessHours()])
+      .then(([nextShop, nextHours]) => {
+        setShop(nextShop);
+        setHours(nextHours);
+      })
+      .catch(() => undefined);
+  }, []);
 
   return (
     <div className="flex min-h-dvh flex-col">

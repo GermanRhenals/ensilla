@@ -1,23 +1,63 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, Sparkles, UserPlus } from "lucide-react";
-import { createClientAction } from "@/app/actions/clients";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Loader2, Sparkles, UserPlus } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireUser } from "@/lib/auth";
-import { getActiveBarbers } from "@/lib/shop";
+import { useAuth } from "@/lib/auth-context";
+import { normalizePhone } from "@/lib/booking";
+import { createClientRecord, fetchPublicBarbers } from "@/lib/data";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Nuevo cliente",
-};
+export default function NewClientPage() {
+  const router = useRouter();
+  const { profile } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const { data } = useAsync(async () => {
+    const barbers = await fetchPublicBarbers();
+    return { barbers };
+  }, "new-client");
 
-export default async function NewClientPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
-  const params = await searchParams;
-  await requireUser();
-  const barbers = await getActiveBarbers();
+  if (!profile || !data) return null;
+  const { barbers } = data;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    const formData = new FormData(event.currentTarget);
+    const phone = normalizePhone(String(formData.get("phone") || ""));
+    if (phone.length < 6) {
+      setError("Ingresá un teléfono válido.");
+      setPending(false);
+      return;
+    }
+
+    try {
+      const id = await createClientRecord({
+        name: String(formData.get("name") || ""),
+        phone,
+        email: String(formData.get("email") || ""),
+        birthDate: String(formData.get("birthDate") || ""),
+        preferredBarberId: String(formData.get("preferredBarberId") || ""),
+        hairType: String(formData.get("hairType") || ""),
+        preferredStyle: String(formData.get("preferredStyle") || ""),
+        products: String(formData.get("products") || ""),
+        allergies: String(formData.get("allergies") || ""),
+        notes: String(formData.get("notes") || ""),
+      });
+      router.replace(`/panel/clientes/detalle?id=${id}&ok=Ficha creada.`);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "No se pudo crear la ficha.",
+      );
+      setPending(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -40,10 +80,10 @@ export default async function NewClientPage({
         </p>
       </div>
 
-      <Flash error={params.error} />
+      <Flash error={error ?? undefined} />
 
       <form
-        action={createClientAction}
+        onSubmit={submit}
         className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]"
       >
         <div className="space-y-4">
@@ -206,7 +246,14 @@ export default async function NewClientPage({
               cliente reserva online con el mismo número, se actualiza sola.
             </p>
             <div className="mt-4 flex flex-col gap-2">
-              <button type="submit" className="btn-primary w-full">
+              <button
+                type="submit"
+                className="btn-primary w-full"
+                disabled={pending}
+              >
+                {pending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
                 Crear ficha
               </button>
               <Link href="/panel/clientes" className="btn-secondary w-full">

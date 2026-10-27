@@ -1,31 +1,80 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Archive, Pencil, Plus, Scissors } from "lucide-react";
-import {
-  createServiceAction,
-  toggleServiceAction,
-} from "@/app/actions/services";
+import { Archive, Loader2, Pencil, Plus, Scissors } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireAdmin } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import {
+  createService,
+  fetchServices,
+  fetchShop,
+  toggleService,
+} from "@/lib/data";
 import { formatMoney } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Servicios",
-};
+export default function ServicesPage() {
+  const { profile } = useAuth();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const { data, reload } = useAsync(async () => {
+    const [shop, services] = await Promise.all([
+      fetchShop(),
+      fetchServices(),
+    ]);
+    return { shop, services };
+  }, "services");
 
-export default async function ServicesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  await requireAdmin();
-  const [shop, services] = await Promise.all([
-    getShop(),
-    prisma.service.findMany({ orderBy: { sortOrder: "asc" } }),
-  ]);
+  if (!profile || !data) return null;
+  if (profile.role !== "ADMIN") {
+    return <Flash error="Solo un administrador puede ver esta sección." />;
+  }
+  const { shop, services } = data;
+
+  async function addService(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    setPending(true);
+    const formData = new FormData(event.currentTarget);
+    try {
+      await createService({
+        name: String(formData.get("name") || ""),
+        description: String(formData.get("description") || ""),
+        durationMin: Number(formData.get("durationMin") || 0),
+        priceCents: Math.round(Number(formData.get("price") || 0) * 100),
+      });
+      event.currentTarget.reset();
+      setMessage("Servicio agregado.");
+      reload();
+    } catch (addError) {
+      setError(
+        addError instanceof Error
+          ? addError.message
+          : "No se pudo agregar el servicio.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function changeActive(serviceId: string, active: boolean) {
+    setMessage(null);
+    setError(null);
+    try {
+      await toggleService(serviceId, active);
+      setMessage(active ? "Servicio reactivado." : "Servicio archivado.");
+      reload();
+    } catch (changeError) {
+      setError(
+        changeError instanceof Error
+          ? changeError.message
+          : "No se pudo actualizar el servicio.",
+      );
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -42,7 +91,7 @@ export default async function ServicesPage({
         </p>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <section className="card card-pad">
         <div className="flex items-center gap-2">
@@ -50,7 +99,7 @@ export default async function ServicesPage({
           <h2 className="font-semibold">Agregar servicio</h2>
         </div>
         <form
-          action={createServiceAction}
+          onSubmit={addService}
           className="mt-4 grid gap-3 sm:grid-cols-[1.2fr_1fr_120px_140px_auto] sm:items-end"
         >
           <div>
@@ -110,7 +159,8 @@ export default async function ServicesPage({
               placeholder="12000"
             />
           </div>
-          <button type="submit" className="btn-primary">
+          <button type="submit" className="btn-primary" disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             Agregar
           </button>
         </form>
@@ -167,19 +217,20 @@ export default async function ServicesPage({
 
                 <div className="flex items-center gap-1.5 self-end sm:self-auto">
                   <Link
-                    href={`/panel/servicios/${service.id}`}
+                    href={`/panel/servicios/detalle?id=${service.id}`}
                     className="btn-secondary btn-sm"
                   >
                     <Pencil className="size-3.5" />
                     Editar
                   </Link>
-                  <form action={toggleServiceAction}>
-                    <input type="hidden" name="id" value={service.id} />
-                    <button type="submit" className="btn-ghost btn-sm">
-                      <Archive className="size-3.5" />
-                      {service.active ? "Archivar" : "Reactivar"}
-                    </button>
-                  </form>
+                  <button
+                    type="button"
+                    onClick={() => changeActive(service.id, !service.active)}
+                    className="btn-ghost btn-sm"
+                  >
+                    <Archive className="size-3.5" />
+                    {service.active ? "Archivar" : "Reactivar"}
+                  </button>
                 </div>
               </div>
             ))}

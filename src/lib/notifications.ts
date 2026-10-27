@@ -1,4 +1,5 @@
-import { prisma } from "./prisma";
+import { fetchUnreadCount } from "./data";
+import { supabase } from "./supabase";
 
 export async function notify({
   userId,
@@ -11,13 +12,15 @@ export async function notify({
   body?: string;
   href?: string;
 }) {
-  return prisma.notification.create({
-    data: { userId, title, body, href },
-  });
+  const { data, error } = await supabase
+    .from("notifications")
+    .insert({ user_id: userId, title, body: body ?? null, href: href ?? null })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 export async function unreadNotifications(userId: string) {
-  return prisma.notification.count({
-    where: { userId, readAt: null },
-  });
+  return fetchUnreadCount(userId);
 }

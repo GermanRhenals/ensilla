@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   ArrowRight,
@@ -14,11 +16,14 @@ import {
   Users,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  FALLBACK_SHOP,
+  fetchPublicBarbers,
+  fetchServices,
+  fetchShop,
+} from "@/lib/data";
 import { formatMoney, initials } from "@/lib/format";
-import { getActiveBarbers, getShop } from "@/lib/shop";
-import { prisma } from "@/lib/prisma";
-
-export const dynamic = "force-dynamic";
+import { useAsync } from "@/lib/use-async";
 
 const steps = [
   {
@@ -56,15 +61,21 @@ const testimonials = [
   },
 ];
 
-export default async function LandingPage() {
-  const [shop, barbers, services] = await Promise.all([
-    getShop(),
-    getActiveBarbers(),
-    prisma.service.findMany({
-      where: { active: true },
-      orderBy: { sortOrder: "asc" },
-    }),
-  ]);
+export default function LandingPage() {
+  const { data } = useAsync(
+    async () => {
+      const [shop, barbers, services] = await Promise.all([
+        fetchShop(),
+        fetchPublicBarbers(),
+        fetchServices(true),
+      ]);
+      return { shop, barbers, services };
+    },
+    "landing",
+  );
+  const shop = data?.shop ?? FALLBACK_SHOP;
+  const barbers = data?.barbers ?? [];
+  const services = data?.services ?? [];
 
   return (
     <>

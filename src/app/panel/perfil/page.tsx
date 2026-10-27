@@ -1,32 +1,81 @@
-import type { Metadata } from "next";
-import { KeyRound, LogOut, Palette, Save, ShieldCheck } from "lucide-react";
-import { updateProfileAction, logoutAction } from "@/app/actions/auth";
+"use client";
+
+import { useState, type FormEvent } from "react";
+import {
+  KeyRound,
+  Loader2,
+  LogOut,
+  Palette,
+  Save,
+  ShieldCheck,
+} from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { normalizePhone } from "@/lib/booking";
+import {
+  fetchBarberCompletedCount,
+  fetchShop,
+  updateProfile,
+} from "@/lib/data";
 import { formatDate } from "@/lib/datetime";
 import { initials } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
+import { supabase } from "@/lib/supabase";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Mi perfil",
-};
+export default function ProfilePage() {
+  const { profile: user, signOut } = useAuth();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-export default async function ProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  const session = await requireUser();
-  const [shop, user, completed] = await Promise.all([
-    getShop(),
-    prisma.user.findUnique({ where: { id: session.id } }),
-    prisma.appointment.count({
-      where: { barberId: session.id, status: "COMPLETED" },
-    }),
-  ]);
-  if (!user) return null;
+  const { data, reload } = useAsync(async () => {
+    if (!user) return null;
+    const [shop, completed] = await Promise.all([
+      fetchShop(),
+      fetchBarberCompletedCount(user.id),
+    ]);
+    return { shop, completed };
+  }, `profile-${user?.id ?? ""}`);
+
+  if (!user || !data) return null;
+  const currentUser = user;
+  const { shop, completed } = data;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    setPending(true);
+    const formData = new FormData(event.currentTarget);
+    const password = String(formData.get("password") || "");
+    try {
+      await updateProfile(currentUser.id, {
+        name: String(formData.get("name") || ""),
+        phone: normalizePhone(String(formData.get("phone") || "")),
+        bio: String(formData.get("bio") || ""),
+        color: String(formData.get("color") || "#3f7d6c"),
+      });
+      if (password) {
+        if (password.length < 6) {
+          throw new Error("La contraseña debe tener al menos 6 caracteres.");
+        }
+        const { error: passwordError } = await supabase.auth.updateUser({
+          password,
+        });
+        if (passwordError) throw new Error(passwordError.message);
+      }
+      setMessage("Perfil actualizado.");
+      reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudo actualizar el perfil.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -42,10 +91,14 @@ export default async function ProfilePage({
         </p>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <div className="grid items-start gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <form action={updateProfileAction} className="card card-pad space-y-4">
+        <form
+          key={`${user.id}-${user.name}`}
+          onSubmit={save}
+          className="card card-pad space-y-4"
+        >
           <div className="flex items-center gap-3">
             <span
               className="flex size-14 items-center justify-center rounded-full font-display text-lg font-semibold"
@@ -152,8 +205,12 @@ export default async function ProfilePage({
           </div>
 
           <div className="flex justify-end pt-1">
-            <button type="submit" className="btn-primary">
-              <Save className="size-4" />
+            <button type="submit" className="btn-primary" disabled={pending}>
+              {pending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
               Guardar cambios
             </button>
           </div>
@@ -178,7 +235,11 @@ export default async function ProfilePage({
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-stone-500">En el equipo desde</dt>
                 <dd className="font-medium">
-                  {formatDate(user.createdAt, "d MMM yyyy", shop.timezone)}
+                   {formatDate(
+                     new Date(user.createdAt),
+                     "d MMM yyyy",
+                     shop.timezone,
+                   )}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
@@ -199,12 +260,16 @@ export default async function ProfilePage({
               Vas a volver a la pantalla de ingreso. Podés entrar de nuevo
               cuando quieras.
             </p>
-            <form action={logoutAction} className="mt-3">
-              <button type="submit" className="btn-secondary w-full">
-                <LogOut className="size-4" />
-                Cerrar sesión
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={async () => {
+                await signOut();
+              }}
+              className="btn-secondary mt-3 w-full"
+            >
+              <LogOut className="size-4" />
+              Cerrar sesión
+            </button>
           </div>
         </div>
       </div>

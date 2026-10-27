@@ -1,51 +1,74 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus, Info, UserPlus } from "lucide-react";
-import { createAppointmentAction } from "@/app/actions/appointments";
+import { useRouter, useSearchParams } from "next/navigation";
+import { fromZonedTime } from "date-fns-tz";
+import {
+  ArrowLeft,
+  CalendarPlus,
+  Info,
+  Loader2,
+  UserPlus,
+} from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { createStaffAppointment } from "@/lib/booking";
+import {
+  fetchBarbers,
+  fetchClients,
+  fetchServices,
+  fetchShop,
+} from "@/lib/data";
 import { todayKey } from "@/lib/datetime";
 import { formatMoney } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
-import { getActiveBarbers, getShop } from "@/lib/shop";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Nueva cita",
-};
+export default function NewAppointmentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <NewAppointmentContent />
+    </Suspense>
+  );
+}
 
-export default async function NewAppointmentPage({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    client?: string;
-    date?: string;
-    time?: string;
-    error?: string;
-  }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const shop = await getShop();
+function NewAppointmentContent() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { profile: user } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const clientParam = params.get("client");
+  const dateParam = params.get("date");
+  const timeParam = params.get("time");
 
-  const [clients, barbers, services] = await Promise.all([
-    prisma.client.findMany({
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        preferredBarberId: true,
-      },
-    }),
-    getActiveBarbers(),
-    prisma.service.findMany({
-      where: { active: true },
-      orderBy: { sortOrder: "asc" },
-    }),
-  ]);
+  const { data } = useAsync(async () => {
+    const [shop, clients, barbers, services] = await Promise.all([
+      fetchShop(),
+      fetchClients(),
+      fetchBarbers(),
+      fetchServices(true),
+    ]);
+    return {
+      shop,
+      clients,
+      barbers: barbers.filter((barber) => barber.active),
+      services,
+    };
+  }, "new-appointment");
 
-  const selectedClient = params.client
-    ? clients.find((client) => client.id === params.client)
+  if (!user || !data) return null;
+
+  const currentUser = user;
+  const { shop, clients, barbers, services } = data;
+  const selectedClient = clientParam
+    ? clients.find((client) => client.id === clientParam)
     : undefined;
 
   const defaultBarberId =
@@ -53,11 +76,43 @@ export default async function NewAppointmentPage({
       ? (selectedClient?.preferredBarberId ?? barbers[0]?.id ?? "")
       : user.id;
   const date =
-    params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
-      ? params.date
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+      ? dateParam
       : todayKey(shop.timezone);
   const time =
-    params.time && /^\d{2}:\d{2}$/.test(params.time) ? params.time : "10:00";
+    timeParam && /^\d{2}:\d{2}$/.test(timeParam) ? timeParam : "10:00";
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    const formData = new FormData(event.currentTarget);
+    const rawDate = String(formData.get("date") || date);
+    const rawTime = String(formData.get("time") || time);
+
+    const result = await createStaffAppointment({
+      clientId: String(formData.get("clientId") || "") || undefined,
+      clientName: String(formData.get("clientName") || "") || undefined,
+      clientPhone: String(formData.get("clientPhone") || "") || undefined,
+      clientEmail: String(formData.get("clientEmail") || "") || undefined,
+      barberId: String(formData.get("barberId") || currentUser.id),
+      serviceId: String(formData.get("serviceId") || ""),
+      start: fromZonedTime(
+        `${rawDate} ${rawTime}:00`,
+        shop.timezone,
+      ).toISOString(),
+      status: String(formData.get("status") || "CONFIRMED"),
+      notes: String(formData.get("notes") || "") || undefined,
+      source: "STAFF",
+    });
+
+    if (!result.ok) {
+      setError(result.error);
+      setPending(false);
+      return;
+    }
+    router.push(`/panel/citas/detalle?id=${result.appointmentId}`);
+  }
 
   return (
     <div className="space-y-5">
@@ -81,10 +136,10 @@ export default async function NewAppointmentPage({
         </p>
       </div>
 
-      <Flash error={params.error} />
+      <Flash error={error ?? undefined} />
 
       <form
-        action={createAppointmentAction}
+        onSubmit={submit}
         className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]"
       >
         <section className="card card-pad">
@@ -279,8 +334,16 @@ export default async function NewAppointmentPage({
             </div>
 
             <div className="mt-5 flex gap-2">
-              <button type="submit" className="btn-primary flex-1">
-                <CalendarPlus className="size-4" />
+              <button
+                type="submit"
+                className="btn-primary flex-1"
+                disabled={pending}
+              >
+                {pending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <CalendarPlus className="size-4" />
+                )}
                 Crear turno
               </button>
               <Link href="/panel/agenda" className="btn-secondary">

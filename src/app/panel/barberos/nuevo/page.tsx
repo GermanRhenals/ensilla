@@ -1,21 +1,50 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, KeyRound, UserPlus } from "lucide-react";
-import { createBarberAction } from "@/app/actions/barbers";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, KeyRound, Loader2, UserPlus } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireAdmin } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { normalizePhone } from "@/lib/booking";
+import { createBarber } from "@/lib/data";
 
-export const metadata: Metadata = {
-  title: "Nuevo integrante",
-};
+export default function NewBarberPage() {
+  const router = useRouter();
+  const { profile } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-export default async function NewBarberPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
-  const params = await searchParams;
-  await requireAdmin();
+  if (!profile) return null;
+  if (profile.role !== "ADMIN") {
+    return <Flash error="Solo un administrador puede ver esta sección." />;
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    const formData = new FormData(event.currentTarget);
+    try {
+      await createBarber({
+        name: String(formData.get("name") || ""),
+        email: String(formData.get("email") || ""),
+        password: String(formData.get("password") || ""),
+        phone: normalizePhone(String(formData.get("phone") || "")),
+        bio: String(formData.get("bio") || ""),
+        color: String(formData.get("color") || "#3f7d6c"),
+        role: String(formData.get("role")) === "ADMIN" ? "ADMIN" : "BARBER",
+      });
+      router.push("/panel/barberos");
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "No se pudo crear el integrante.",
+      );
+      setPending(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -38,10 +67,10 @@ export default async function NewBarberPage({
         </p>
       </div>
 
-      <Flash error={params.error} />
+      <Flash error={error ?? undefined} />
 
       <form
-        action={createBarberAction}
+        onSubmit={submit}
         className="card card-pad max-w-2xl space-y-3.5"
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
@@ -148,8 +177,12 @@ export default async function NewBarberPage({
         </div>
 
         <div className="flex gap-2 pt-1">
-          <button type="submit" className="btn-primary">
-            <UserPlus className="size-4" />
+          <button type="submit" className="btn-primary" disabled={pending}>
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <UserPlus className="size-4" />
+            )}
             Crear integrante
           </button>
           <Link href="/panel/barberos" className="btn-secondary">

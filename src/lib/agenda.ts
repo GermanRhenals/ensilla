@@ -5,8 +5,7 @@ import {
   parseDateKey,
   weekdayOfKey,
 } from "./datetime";
-import { prisma } from "./prisma";
-import { getShop } from "./shop";
+import { fetchAppointmentsBetween, fetchBarbers, fetchBusinessHours, fetchShop } from "./data";
 
 export type AgendaAppointment = {
   id: string;
@@ -60,46 +59,26 @@ export async function getAgenda(
   dayKey: string,
   options?: { barberId?: string },
 ): Promise<Agenda> {
-  const shop = await getShop();
+  const [shop, hours] = await Promise.all([fetchShop(), fetchBusinessHours()]);
   const weekday = weekdayOfKey(dayKey, shop.timezone);
-  const hours = await prisma.businessHour.findUnique({ where: { weekday } });
-  const openMinute = hours?.active ? hours.openMinute : 0;
-  const closeMinute = hours?.active ? hours.closeMinute : 0;
+  const dayHours = hours.find((hour) => hour.weekday === weekday);
+  const openMinute = dayHours?.active ? dayHours.openMinute : 0;
+  const closeMinute = dayHours?.active ? dayHours.closeMinute : 0;
 
-  const barbers = await prisma.user.findMany({
-    where: {
-      active: true,
-      role: { in: ["ADMIN", "BARBER"] },
-      ...(options?.barberId ? { id: options.barberId } : {}),
-    },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, color: true },
-  });
+  const allBarbers = await fetchBarbers();
+  const barbers = allBarbers.filter(
+    (barber) =>
+      barber.active &&
+      (!options?.barberId || barber.id === options.barberId),
+  );
 
   const dayStart = parseDateKey(dayKey, shop.timezone);
   const dayEnd = endOfDayKey(dayKey, shop.timezone);
-
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      barberId: { in: barbers.map((b) => b.id) },
-      start: { lt: dayEnd },
-      end: { gt: dayStart },
-    },
-    orderBy: { start: "asc" },
-    include: {
-      client: {
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          hairType: true,
-          preferredStyle: true,
-        },
-      },
-      service: { select: { name: true, durationMin: true } },
-      barber: { select: { id: true, name: true, color: true } },
-    },
-  });
+  const appointments = await fetchAppointmentsBetween(
+    dayStart.toISOString(),
+    dayEnd.toISOString(),
+    barbers.map((barber) => barber.id),
+  );
 
   const grouped = new Map<string, AgendaAppointment[]>();
   for (const barber of barbers) grouped.set(barber.id, []);
@@ -113,14 +92,15 @@ export async function getAgenda(
   let bookedMinutes = 0;
 
   for (const appointment of appointments) {
+    if (!appointment.client || !appointment.service || !appointment.barber) continue;
     const mapped: AgendaAppointment = {
       id: appointment.id,
-      start: appointment.start.toISOString(),
-      end: appointment.end.toISOString(),
+      start: appointment.start,
+      end: appointment.end,
       status: appointment.status,
       priceCents: appointment.priceCents,
       notes: appointment.notes,
-      reminderSentAt: appointment.reminderSentAt?.toISOString() ?? null,
+      reminderSentAt: appointment.reminderSentAt,
       clientId: appointment.client.id,
       clientName: appointment.client.name,
       clientPhone: appointment.client.phone,
@@ -141,8 +121,8 @@ export async function getAgenda(
 
     if (BLOCKING_STATUSES.includes(appointment.status)) {
       estimatedCents += appointment.priceCents;
-      const startMinute = minutesOfDay(appointment.start, shop.timezone);
-      const endMinute = minutesOfDay(appointment.end, shop.timezone);
+      const startMinute = minutesOfDay(new Date(appointment.start), shop.timezone);
+      const endMinute = minutesOfDay(new Date(appointment.end), shop.timezone);
       bookedMinutes += Math.max(
         0,
         Math.min(endMinute, closeMinute) - Math.max(startMinute, openMinute),
@@ -153,7 +133,7 @@ export async function getAgenda(
     }
   }
 
-  const totalMinutes = hours?.active
+  const totalMinutes = dayHours?.active
     ? (closeMinute - openMinute) * barbers.length
     : 0;
 
@@ -162,7 +142,7 @@ export async function getAgenda(
     weekday,
     openMinute,
     closeMinute,
-    closed: !hours?.active,
+    closed: !dayHours?.active,
     barbers: barbers.map((barber) => ({
       id: barber.id,
       name: barber.name,

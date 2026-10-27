@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -14,7 +14,8 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { createPublicBookingAction } from "@/app/actions/booking";
+import { getAvailability } from "@/lib/availability";
+import { createPublicBooking } from "@/lib/booking";
 import { formatMoney, initials } from "@/lib/format";
 import type { DayOption } from "@/lib/datetime";
 
@@ -92,7 +93,7 @@ export function BookingWizard({
   } | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const [form, setForm] = useState({
     name: "",
     phone: "",
@@ -128,16 +129,14 @@ export function BookingWizard({
     const key = `${serviceId}|${barberId}|${dayKey}`;
     let cancelled = false;
 
-    fetch(
-      `/api/availability?date=${dayKey}&serviceId=${serviceId}&barberId=${barberId}`,
-    )
-      .then(async (response) => {
-        if (!response.ok) throw new Error("No se pudo consultar la agenda.");
-        return (await response.json()) as { slots: Slot[] };
-      })
-      .then((data) => {
+    getAvailability({
+      dayKey,
+      serviceId,
+      barberId: barberId === "any" ? undefined : barberId,
+    })
+      .then((result) => {
         if (!cancelled) {
-          setSlotResult({ key, slots: data.slots ?? [], error: null });
+          setSlotResult({ key, slots: result, error: null });
         }
       })
       .catch(() => {
@@ -181,29 +180,29 @@ export function BookingWizard({
     setStep(3);
   }
 
-  function submit() {
+  async function submit() {
     if (!selectedSlot || !service) return;
     setFormError(null);
+    setPending(true);
 
-    startTransition(async () => {
-      const result = await createPublicBookingAction({
-        serviceId,
-        barberId: selectedSlot.barberId,
-        start: selectedSlot.start,
-        name: form.name,
-        phone: form.phone,
-        email: form.email,
-        hairType: form.hairType,
-        preferredStyle: form.preferredStyle,
-        notes: form.notes,
-      });
-
-      if (result.ok) {
-        router.push(`/reservar/confirmacion/${result.appointmentId}`);
-      } else {
-        setFormError(result.error);
-      }
+    const result = await createPublicBooking({
+      serviceId,
+      barberId: selectedSlot.barberId,
+      start: selectedSlot.start,
+      name: form.name,
+      phone: form.phone,
+      email: form.email,
+      hairType: form.hairType,
+      preferredStyle: form.preferredStyle,
+      notes: form.notes,
     });
+
+    if (result.ok) {
+      router.push(`/reservar/confirmacion?id=${result.appointmentId}`);
+    } else {
+      setFormError(result.error);
+      setPending(false);
+    }
   }
 
   return (

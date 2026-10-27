@@ -1,26 +1,109 @@
-import type { Metadata } from "next";
-import { Clock3, Globe2, Save, Store } from "lucide-react";
-import { updateHoursAction, updateShopAction } from "@/app/actions/settings";
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { Clock3, Globe2, Loader2, Save, Store } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireAdmin } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
 import { WEEKDAY_LABELS } from "@/lib/constants";
-import { minutesToTime } from "@/lib/datetime";
-import { getBusinessHours, getShop } from "@/lib/shop";
+import {
+  fetchBusinessHours,
+  fetchShop,
+  updateHours,
+  updateShop,
+} from "@/lib/data";
+import { minutesToTime, timeToMinutes } from "@/lib/datetime";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Ajustes",
-};
+export default function SettingsPage() {
+  const { profile } = useAuth();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const { data, reload } = useAsync(async () => {
+    const [shop, hours] = await Promise.all([
+      fetchShop(),
+      fetchBusinessHours(),
+    ]);
+    return { shop, hours };
+  }, "settings");
 
-export default async function SettingsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  await requireAdmin();
-  const [shop, hours] = await Promise.all([getShop(), getBusinessHours()]);
-
+  if (!profile || !data) return null;
+  if (profile.role !== "ADMIN") {
+    return <Flash error="Solo un administrador puede ver esta sección." />;
+  }
+  const { shop, hours } = data;
   const byWeekday = new Map(hours.map((hour) => [hour.weekday, hour]));
+
+  async function saveShop(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    setPending("shop");
+    const formData = new FormData(event.currentTarget);
+    try {
+      await updateShop({
+        name: String(formData.get("name") || "").trim(),
+        tagline: String(formData.get("tagline") || "").trim(),
+        description:
+          String(formData.get("description") || "").trim() || null,
+        address: String(formData.get("address") || "").trim() || null,
+        phone: String(formData.get("phone") || "").trim() || null,
+        whatsapp: String(formData.get("whatsapp") || "").trim() || null,
+        email: String(formData.get("email") || "").trim() || null,
+        instagram: String(formData.get("instagram") || "").trim() || null,
+        currency: String(formData.get("currency") || "ARS").trim(),
+        timezone: String(formData.get("timezone") || "").trim(),
+        slot_step_min: Number(formData.get("slotStepMin") || 15),
+        buffer_min: Number(formData.get("bufferMin") || 0),
+        lead_time_min: Number(formData.get("leadTimeMin") || 0),
+        booking_window_days: Number(formData.get("bookingWindowDays") || 21),
+      });
+      setMessage("Configuración guardada.");
+      reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudo guardar la configuración.",
+      );
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function saveHours(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    setPending("hours");
+    const formData = new FormData(event.currentTarget);
+    try {
+      await updateHours(
+        WEEKDAY_LABELS.map((_, weekday) => ({
+          weekday,
+          active: formData.get(`active-${weekday}`) === "on",
+          openMinute:
+            timeToMinutes(
+              String(formData.get(`open-${weekday}`) || "10:00"),
+            ) ?? 600,
+          closeMinute:
+            timeToMinutes(
+              String(formData.get(`close-${weekday}`) || "20:00"),
+            ) ?? 1200,
+        })),
+      );
+      setMessage("Horarios guardados.");
+      reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudieron guardar los horarios.",
+      );
+    } finally {
+      setPending(null);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -36,10 +119,14 @@ export default async function SettingsPage({
         </p>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <div className="grid items-start gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-        <form action={updateShopAction} className="card card-pad space-y-4">
+        <form
+          key={JSON.stringify(shop)}
+          onSubmit={saveShop}
+          className="card card-pad space-y-4"
+        >
           <div className="flex items-center gap-2">
             <Store className="size-4 text-copper" />
             <h2 className="font-semibold">Datos del local</h2>
@@ -271,15 +358,23 @@ export default async function SettingsPage({
           </div>
 
           <div className="flex justify-end pt-1">
-            <button type="submit" className="btn-primary">
-              <Save className="size-4" />
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={pending !== null}
+            >
+              {pending === "shop" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
               Guardar configuración
             </button>
           </div>
         </form>
 
         <div className="space-y-4">
-          <form action={updateHoursAction} className="card card-pad">
+          <form onSubmit={saveHours} className="card card-pad">
             <div className="flex items-center gap-2">
               <Clock3 className="size-4 text-copper" />
               <h2 className="font-semibold">Horario de atención</h2>
@@ -322,8 +417,16 @@ export default async function SettingsPage({
               })}
             </div>
 
-            <button type="submit" className="btn-primary mt-4 w-full">
-              <Save className="size-4" />
+            <button
+              type="submit"
+              className="btn-primary mt-4 w-full"
+              disabled={pending !== null}
+            >
+              {pending === "hours" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
               Guardar horarios
             </button>
           </form>

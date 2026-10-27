@@ -1,37 +1,68 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { Bell, Check, CheckCheck, ExternalLink } from "lucide-react";
-import {
-  markAllNotificationsReadAction,
-  markNotificationReadAction,
-} from "@/app/actions/notifications";
 import { Flash } from "@/components/ui/flash";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import {
+  fetchNotifications,
+  fetchShop,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "@/lib/data";
 import { formatDateTime } from "@/lib/datetime";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Notificaciones",
-};
+export default function NotificationsPage() {
+  const { profile } = useAuth();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function NotificationsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const [shop, notifications] = await Promise.all([
-    getShop(),
-    prisma.notification.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 60,
-    }),
-  ]);
+  const { data, reload } = useAsync(async () => {
+    if (!profile) return null;
+    const [shop, notifications] = await Promise.all([
+      fetchShop(),
+      fetchNotifications(profile.id),
+    ]);
+    return { shop, notifications };
+  }, `notifications-${profile?.id ?? ""}`);
 
+  if (!profile || !data) return null;
+  const currentProfile = profile;
+  const { shop, notifications } = data;
   const unread = notifications.filter((item) => !item.readAt).length;
+
+  async function markAll() {
+    setMessage(null);
+    setError(null);
+    try {
+      await markAllNotificationsRead(currentProfile.id);
+      setMessage("Marcaste todo como leído.");
+      reload();
+    } catch (markError) {
+      setError(
+        markError instanceof Error
+          ? markError.message
+          : "No se pudieron marcar los avisos.",
+      );
+    }
+  }
+
+  async function markOne(id: string) {
+    setMessage(null);
+    setError(null);
+    try {
+      await markNotificationRead(id);
+      reload();
+    } catch (markError) {
+      setError(
+        markError instanceof Error
+          ? markError.message
+          : "No se pudo marcar el aviso.",
+      );
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -50,21 +81,14 @@ export default async function NotificationsPage({
           </p>
         </div>
         {unread > 0 && (
-          <form action={markAllNotificationsReadAction}>
-            <input
-              type="hidden"
-              name="redirectTo"
-              value="/panel/notificaciones"
-            />
-            <button type="submit" className="btn-secondary">
-              <CheckCheck className="size-4" />
-              Marcar todo como leído
-            </button>
-          </form>
+          <button type="button" onClick={markAll} className="btn-secondary">
+            <CheckCheck className="size-4" />
+            Marcar todo como leído
+          </button>
         )}
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <div className="card overflow-hidden">
         {notifications.length === 0 ? (
@@ -116,7 +140,7 @@ export default async function NotificationsPage({
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-stone-400">
                       <span>
                         {formatDateTime(
-                          notification.createdAt,
+                          new Date(notification.createdAt),
                           shop.timezone,
                         )}
                       </span>
@@ -134,21 +158,14 @@ export default async function NotificationsPage({
                   </div>
 
                   {isUnread && (
-                    <form action={markNotificationReadAction}>
-                      <input type="hidden" name="id" value={notification.id} />
-                      <input
-                        type="hidden"
-                        name="redirectTo"
-                        value="/panel/notificaciones"
-                      />
-                      <button
-                        type="submit"
-                        className="flex size-8 items-center justify-center rounded-full text-stone-400 transition hover:bg-sand hover:text-ink"
-                        title="Marcar como leída"
-                      >
-                        <Check className="size-4" />
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      onClick={() => markOne(notification.id)}
+                      className="flex size-8 items-center justify-center rounded-full text-stone-400 transition hover:bg-sand hover:text-ink"
+                      title="Marcar como leída"
+                    >
+                      <Check className="size-4" />
+                    </button>
                   )}
                 </div>
               );

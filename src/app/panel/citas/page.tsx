@@ -1,35 +1,28 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense } from "react";
 import Link from "next/link";
-import type { Prisma } from "@prisma/client";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarClock,
   CalendarDays,
+  Loader2,
   Plus,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
 import {
   APPOINTMENT_STATUS_LIST,
   isValidStatus,
   statusInfo,
 } from "@/lib/constants";
-import {
-  endOfDayKey,
-  formatDate,
-  formatTime,
-  parseDateKey,
-  todayKey,
-} from "@/lib/datetime";
+import { fetchAppointments, fetchShop } from "@/lib/data";
+import { formatDate, formatTime } from "@/lib/datetime";
 import { formatMoney, initials } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
-
-export const metadata: Metadata = {
-  title: "Turnos",
-};
+import { useAsync } from "@/lib/use-async";
 
 const views = [
   { id: "upcoming", label: "Próximos" },
@@ -37,62 +30,49 @@ const views = [
   { id: "all", label: "Recientes" },
 ];
 
-export default async function AppointmentsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    view?: string;
-    status?: string;
-    q?: string;
-    ok?: string;
-    error?: string;
-  }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const shop = await getShop();
-  const tz = shop.timezone;
-  const view = views.some((item) => item.id === params.view)
-    ? (params.view as string)
-    : "upcoming";
-  const status =
-    params.status && isValidStatus(params.status) ? params.status : "";
-  const query = (params.q ?? "").trim();
-
-  const now = new Date();
-  const todayStart = parseDateKey(todayKey(tz), tz);
-  const todayEnd = endOfDayKey(todayKey(tz), tz);
-
-  const where: Prisma.AppointmentWhereInput = {
-    ...(user.role === "ADMIN" ? {} : { barberId: user.id }),
-    ...(status ? { status } : {}),
-  };
-
-  if (query) {
-    const digits = query.replace(/\D/g, "");
-    where.OR = [
-      { client: { name: { contains: query } } },
-      { client: { phone: { contains: digits || query } } },
-      { service: { name: { contains: query } } },
-    ];
-  }
-
-  if (view === "today") {
-    where.start = { gte: todayStart, lte: todayEnd };
-  } else if (view === "upcoming") {
-    where.start = { gte: now };
+export default function AppointmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <AppointmentsContent />
+    </Suspense>
+  );
 }
 
-  const appointments = await prisma.appointment.findMany({
-    where,
-    orderBy: { start: view === "all" ? "desc" : "asc" },
-    take: 150,
-    include: {
-      client: { select: { id: true, name: true, phone: true } },
-      service: { select: { name: true, durationMin: true } },
-      barber: { select: { id: true, name: true, color: true } },
-    },
-  });
+function AppointmentsContent() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { profile: user } = useAuth();
+  const viewParam = params.get("view");
+  const statusParam = params.get("status");
+  const view = views.some((item) => item.id === viewParam)
+    ? (viewParam as string)
+    : "upcoming";
+  const status =
+    statusParam && isValidStatus(statusParam) ? statusParam : "";
+  const query = (params.get("q") ?? "").trim();
+
+  const { data } = useAsync(async () => {
+    if (!user) return null;
+    const shop = await fetchShop();
+    const appointments = await fetchAppointments({
+      view,
+      status,
+      barberId: user.role === "ADMIN" ? undefined : user.id,
+      query,
+      timezone: shop.timezone,
+    });
+    return { shop, appointments };
+  }, `appointments-${user?.id ?? ""}-${view}-${status}-${query}`);
+
+  if (!user || !data) return null;
+  const { shop, appointments } = data;
+  const tz = shop.timezone;
 
   return (
     <div className="space-y-5">
@@ -114,7 +94,10 @@ export default async function AppointmentsPage({
         </Link>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash
+        ok={params.get("ok") ?? undefined}
+        error={params.get("error") ?? undefined}
+      />
 
       <div className="flex flex-wrap gap-1.5">
         {views.map((item) => (
@@ -133,8 +116,17 @@ export default async function AppointmentsPage({
       </div>
 
       <form
-        action="/panel/citas"
-        method="get"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const formData = new FormData(event.currentTarget);
+          const nextParams = new URLSearchParams();
+          nextParams.set("view", String(formData.get("view") || view));
+          const nextQuery = String(formData.get("q") || "").trim();
+          const nextStatus = String(formData.get("status") || "");
+          if (nextQuery) nextParams.set("q", nextQuery);
+          if (nextStatus) nextParams.set("status", nextStatus);
+          router.push(`/panel/citas?${nextParams.toString()}`);
+        }}
         className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-end"
       >
         <input type="hidden" name="view" value={view} />
@@ -234,16 +226,20 @@ export default async function AppointmentsPage({
                   >
                     <td className="whitespace-nowrap px-4 py-3">
                       <p className="font-medium capitalize">
-                        {formatDate(appointment.start, "EEE d MMM", tz)}
+                        {formatDate(
+                          new Date(appointment.start),
+                          "EEE d MMM",
+                          tz,
+                        )}
                       </p>
                       <p className="text-xs tabular-nums text-stone-400">
-                        {formatTime(appointment.start, tz)} –{" "}
-                        {formatTime(appointment.end, tz)}
+                        {formatTime(new Date(appointment.start), tz)} –{" "}
+                        {formatTime(new Date(appointment.end), tz)}
                       </p>
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/panel/clientes/${appointment.client.id}`}
+                        href={`/panel/clientes/detalle?id=${appointment.client?.id ?? ""}`}
                         className="font-medium hover:text-copper"
                       >
                         {appointment.client.name}
@@ -280,7 +276,7 @@ export default async function AppointmentsPage({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link
-                        href={`/panel/citas/${appointment.id}`}
+                        href={`/panel/citas/detalle?id=${appointment.id}`}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-copper"
                       >
                         <CalendarClock className="size-3.5" />

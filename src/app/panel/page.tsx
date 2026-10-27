@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import {
@@ -18,26 +19,29 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { fetchShop } from "@/lib/data";
 import { formatDate, formatTime } from "@/lib/datetime";
 import { formatMoney, initials } from "@/lib/format";
 import { suggestIdeas } from "@/lib/ideas";
-import { getShop } from "@/lib/shop";
 import { getOverview, getTodaySummary } from "@/lib/stats";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Resumen",
-};
+export default function DashboardPage() {
+  const { profile: user } = useAuth();
+  const { data } = useAsync(async () => {
+    if (!user) return null;
+    const shop = await fetchShop();
+    const scopedBarberId = user.role === "ADMIN" ? undefined : user.id;
+    const [today, overview] = await Promise.all([
+      getTodaySummary(scopedBarberId),
+      getOverview({ days: 30, barberId: scopedBarberId }),
+    ]);
+    return { shop, today, overview };
+  }, `dashboard-${user?.id ?? ""}`);
 
-export default async function DashboardPage() {
-  const user = await requireUser();
-  const shop = await getShop();
-  const scopedBarberId = user.role === "ADMIN" ? undefined : user.id;
-
-  const [today, overview] = await Promise.all([
-    getTodaySummary(scopedBarberId),
-    getOverview({ days: 30, barberId: scopedBarberId }),
-  ]);
+  if (!user || !data) return null;
+  const { shop, today, overview } = data;
 
   const hour = Number(formatInTimeZone(new Date(), shop.timezone, "H"));
   const greeting =
@@ -175,7 +179,7 @@ export default async function DashboardPage() {
                   {barber.appointments.slice(0, 4).map((appointment) => (
                     <Link
                       key={appointment.id}
-                      href={`/panel/citas/${appointment.id}`}
+                      href={`/panel/citas/detalle?id=${appointment.id}`}
                       className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-sand/60"
                     >
                       <span className="w-11 shrink-0 text-xs font-semibold tabular-nums text-stone-500">
@@ -225,7 +229,7 @@ export default async function DashboardPage() {
                 return (
                   <Link
                     key={appointment.id}
-                    href={`/panel/clientes/${appointment.clientId}`}
+                    href={`/panel/clientes/detalle?id=${appointment.clientId}`}
                     className="block rounded-xl border border-line bg-cream/40 p-3.5 transition hover:border-copper/40"
                   >
                     <div className="flex items-center justify-between gap-2">

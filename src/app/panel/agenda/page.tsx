@@ -1,5 +1,8 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Banknote,
   CalendarClock,
@@ -7,12 +10,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Gauge,
+  Loader2,
   Plus,
   Users,
 } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { getAgenda } from "@/lib/agenda";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { fetchBarbers, fetchShop } from "@/lib/data";
 import {
   addDaysToKey,
   formatLongDate,
@@ -23,11 +28,7 @@ import {
   todayKey,
 } from "@/lib/datetime";
 import { formatMoney, initials } from "@/lib/format";
-import { getActiveBarbers, getShop } from "@/lib/shop";
-
-export const metadata: Metadata = {
-  title: "Agenda",
-};
+import { useAsync } from "@/lib/use-async";
 
 const blockStyles: Record<string, string> = {
   PENDING: "border-amber-200 bg-amber-50/80",
@@ -37,39 +38,65 @@ const blockStyles: Record<string, string> = {
   NO_SHOW: "border-orange-200 bg-orange-50/70 opacity-80",
 };
 
-export default async function AgendaPage({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    date?: string;
-    barber?: string;
-    ok?: string;
-    error?: string;
-  }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const shop = await getShop();
+export default function AgendaPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <AgendaContent />
+    </Suspense>
+  );
+}
+
+function AgendaContent() {
+  const params = useSearchParams();
+  const { profile: user } = useAuth();
+  const dateParam = params.get("date");
+  const barberParam = params.get("barber");
+  const { data } = useAsync(async () => {
+    if (!user) return null;
+    const [shop, activeBarbers] = await Promise.all([
+      fetchShop(),
+      fetchBarbers(),
+    ]);
+    const tz = shop.timezone;
+    const requestedDate =
+      dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+        ? dateParam
+        : todayKey(tz);
+    const requestedBarber =
+      user.role === "ADMIN" && barberParam ? barberParam : undefined;
+    const agenda = await getAgenda(requestedDate, {
+      barberId: user.role === "ADMIN" ? requestedBarber : user.id,
+    });
+    return {
+      shop,
+      agenda,
+      activeBarbers: activeBarbers.filter((barber) => barber.active),
+      requestedDate,
+      requestedBarber,
+      isToday: requestedDate === todayKey(tz),
+      prevKey: addDaysToKey(requestedDate, -1, tz),
+      nextKey: addDaysToKey(requestedDate, 1, tz),
+    };
+  }, `agenda-${user?.id ?? ""}-${dateParam ?? ""}-${barberParam ?? ""}`);
+
+  if (!user || !data) return null;
+  const {
+    shop,
+    agenda,
+    activeBarbers,
+    requestedDate,
+    requestedBarber,
+    isToday,
+    prevKey,
+    nextKey,
+  } = data;
   const tz = shop.timezone;
-
-  const requestedDate =
-    params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
-      ? params.date
-      : todayKey(tz);
-  const requestedBarber =
-    user.role === "ADMIN" && params.barber ? params.barber : undefined;
-
-  const [agenda, activeBarbers] = await Promise.all([
-    getAgenda(requestedDate, {
-      barberId:
-        user.role === "ADMIN" ? requestedBarber : user.id,
-    }),
-    getActiveBarbers(),
-  ]);
-
-  const isToday = requestedDate === todayKey(tz);
-  const prevKey = addDaysToKey(requestedDate, -1, tz);
-  const nextKey = addDaysToKey(requestedDate, 1, tz);
   const now = new Date();
   const nowMinutes = minutesOfDay(now, tz);
 
@@ -150,7 +177,10 @@ export default async function AgendaPage({
         </div>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash
+        ok={params.get("ok") ?? undefined}
+        error={params.get("error") ?? undefined}
+      />
 
       {user.role === "ADMIN" && activeBarbers.length > 1 && (
         <div className="flex flex-wrap gap-1.5">
@@ -360,7 +390,7 @@ export default async function AgendaPage({
                   return (
                     <Link
                       key={appointment.id}
-                      href={`/panel/citas/${appointment.id}`}
+                      href={`/panel/citas/detalle?id=${appointment.id}`}
                       className={`absolute left-1.5 right-1.5 overflow-hidden rounded-lg border px-2 py-1.5 text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
                         blockStyles[appointment.status] ??
                         "border-line bg-white"

@@ -1,63 +1,61 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense } from "react";
 import Link from "next/link";
-import { Plus, Search, Users } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2, Plus, Search, Users } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import {
+  fetchClientStats,
+  fetchClientWorkload,
+  fetchClients,
+  fetchShop,
+} from "@/lib/data";
 import { formatDate } from "@/lib/datetime";
 import { formatMoney, initials } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Clientes",
-};
-
-export default async function ClientsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string; ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  await requireUser();
-  const shop = await getShop();
-  const query = (params.q ?? "").trim();
-
-  const [clients, totals] = await Promise.all([
-    prisma.client.findMany({
-      where: query
-        ? {
-            OR: [
-              { name: { contains: query } },
-              {
-                phone: {
-                  contains: query.replace(/\D/g, "") || query,
-                },
-              },
-              ...(query.includes("@") ? [{ email: { contains: query } }] : []),
-            ],
-          }
-        : {},
-      orderBy: { name: "asc" },
-      take: 200,
-      include: {
-        preferredBarber: { select: { name: true, color: true } },
-        _count: { select: { appointments: true } },
-      },
-    }),
-    prisma.appointment.groupBy({
-      by: ["clientId"],
-      where: { status: "COMPLETED" },
-      _sum: { priceCents: true },
-      _max: { start: true },
-    }),
-  ]);
-
-  const totalMap = new Map(
-    totals.map((item) => [
-      item.clientId,
-      { spent: item._sum.priceCents ?? 0, last: item._max.start },
-    ]),
+export default function ClientsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <ClientsContent />
+    </Suspense>
   );
+}
+
+function ClientsContent() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { profile } = useAuth();
+  const query = (params.get("q") ?? "").trim();
+
+  const { data } = useAsync(async () => {
+    const [shop, clients, totals, workload] = await Promise.all([
+      fetchShop(),
+      fetchClients(query),
+      fetchClientStats(),
+      fetchClientWorkload(),
+    ]);
+    return {
+      shop,
+      clients: clients.map((client) => ({
+        ...client,
+        appointmentCount: workload.get(client.id) ?? 0,
+      })),
+      totals,
+    };
+  }, `clients-${query}`);
+
+  if (!profile || !data) return null;
+  const { shop, clients, totals } = data;
+  const totalMap = totals;
 
   return (
     <div className="space-y-5">
@@ -80,11 +78,22 @@ export default async function ClientsPage({
         </Link>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash
+        ok={params.get("ok") ?? undefined}
+        error={params.get("error") ?? undefined}
+      />
 
       <form
-        action="/panel/clientes"
-        method="get"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const formData = new FormData(event.currentTarget);
+          const nextQuery = String(formData.get("q") || "").trim();
+          router.push(
+            nextQuery
+              ? `/panel/clientes?q=${encodeURIComponent(nextQuery)}`
+              : "/panel/clientes",
+          );
+        }}
         className="card flex items-end gap-2 p-4"
       >
         <div className="flex-1">
@@ -168,7 +177,7 @@ export default async function ClientsPage({
                           </span>
                           <div>
                             <Link
-                              href={`/panel/clientes/${client.id}`}
+                              href={`/panel/clientes/detalle?id=${client.id}`}
                               className="font-medium hover:text-copper"
                             >
                               {client.name}
@@ -215,11 +224,15 @@ export default async function ClientsPage({
                         )}
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        {client._count.appointments}
+                        {client.appointmentCount ?? 0}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-stone-500">
                         {stats?.last
-                          ? formatDate(stats.last, "d MMM yy", shop.timezone)
+                          ? formatDate(
+                              new Date(stats.last),
+                              "d MMM yy",
+                              shop.timezone,
+                            )
                           : "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-medium">
@@ -227,7 +240,7 @@ export default async function ClientsPage({
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/panel/clientes/${client.id}`}
+                          href={`/panel/clientes/detalle?id=${client.id}`}
                           className="text-xs font-semibold text-copper"
                         >
                           Ver ficha

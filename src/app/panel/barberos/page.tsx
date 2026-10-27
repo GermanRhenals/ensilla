@@ -1,39 +1,63 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { Pencil, Plus, Power, UserCog } from "lucide-react";
-import { toggleBarberAction } from "@/app/actions/barbers";
 import { Flash } from "@/components/ui/flash";
-import { requireAdmin } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import {
+  fetchBarberWorkload,
+  fetchBarbers,
+  toggleBarber,
+} from "@/lib/data";
 import { initials } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Barberos",
-};
+export default function BarbersPage() {
+  const { profile: admin } = useAuth();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { data, reload } = useAsync(async () => {
+    const [barbers, workload] = await Promise.all([
+      fetchBarbers(),
+      fetchBarberWorkload(),
+    ]);
+    return {
+      barbers: barbers
+        .filter((barber) => barber.role === "ADMIN" || barber.role === "BARBER")
+        .sort(
+          (a, b) =>
+            Number(b.active) - Number(a.active) ||
+            a.name.localeCompare(b.name),
+        )
+        .map((barber) => ({
+          ...barber,
+          appointmentCount: workload.get(barber.id) ?? 0,
+        })),
+    };
+  }, "barbers");
 
-export default async function BarbersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  const params = await searchParams;
-  const admin = await requireAdmin();
+  if (!admin || !data) return null;
+  if (admin.role !== "ADMIN") {
+    return <Flash error="Solo un administrador puede ver esta sección." />;
+  }
+  const { barbers } = data;
 
-  const barbers = await prisma.user.findMany({
-    where: { role: { in: ["ADMIN", "BARBER"] } },
-    orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      bio: true,
-      color: true,
-      role: true,
-      active: true,
-      _count: { select: { appointments: true } },
-    },
-  });
+  async function changeAccess(id: string, active: boolean) {
+    setMessage(null);
+    setError(null);
+    try {
+      await toggleBarber(id, active);
+      setMessage(active ? "Acceso reactivado." : "Acceso desactivado.");
+      reload();
+    } catch (changeError) {
+      setError(
+        changeError instanceof Error
+          ? changeError.message
+          : "No se pudo actualizar el acceso.",
+      );
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -55,7 +79,7 @@ export default async function BarbersPage({
         </Link>
       </div>
 
-      <Flash ok={params.ok} error={params.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <div className="grid gap-4 md:grid-cols-2">
         {barbers.map((barber) => {
@@ -98,18 +122,16 @@ export default async function BarbersPage({
                   </div>
                 </div>
                 {!isSelf && (
-                  <form action={toggleBarberAction}>
-                    <input type="hidden" name="id" value={barber.id} />
-                    <button
-                      type="submit"
-                      className="flex size-8 items-center justify-center rounded-full text-stone-400 transition hover:bg-sand hover:text-ink"
-                      title={
-                        barber.active ? "Desactivar acceso" : "Reactivar acceso"
-                      }
-                    >
-                      <Power className="size-4" />
-                    </button>
-                  </form>
+                  <button
+                    type="button"
+                    onClick={() => changeAccess(barber.id, !barber.active)}
+                    className="flex size-8 items-center justify-center rounded-full text-stone-400 transition hover:bg-sand hover:text-ink"
+                    title={
+                      barber.active ? "Desactivar acceso" : "Reactivar acceso"
+                    }
+                  >
+                    <Power className="size-4" />
+                  </button>
                 )}
               </div>
 
@@ -121,13 +143,13 @@ export default async function BarbersPage({
                 <span className="chip">{barber.email}</span>
                 {barber.phone && <span className="chip">{barber.phone}</span>}
                 <span className="chip">
-                  {barber._count.appointments} turnos históricos
+                  {barber.appointmentCount} turnos históricos
                 </span>
               </div>
 
               <div className="mt-4 flex justify-end border-t border-line pt-3">
                 <Link
-                  href={`/panel/barberos/${barber.id}`}
+                  href={`/panel/barberos/detalle?id=${barber.id}`}
                   className="btn-secondary btn-sm"
                 >
                   <Pencil className="size-3.5" />

@@ -1,34 +1,46 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Bell, ExternalLink, LogOut, Plus } from "lucide-react";
-import { logoutAction } from "@/app/actions/auth";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, ExternalLink, Loader2, LogOut, Plus } from "lucide-react";
 import { PanelNav } from "@/components/panel/panel-nav";
 import { Logo } from "@/components/ui/logo";
-import { requireUser } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { FALLBACK_SHOP, fetchShop, fetchUnreadCount } from "@/lib/data";
 import { formatLongDate } from "@/lib/datetime";
 import { initials } from "@/lib/format";
-import { unreadNotifications } from "@/lib/notifications";
-import { prisma } from "@/lib/prisma";
-import { getShop } from "@/lib/shop";
+import type { Shop } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+function PanelShell({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { profile, loading, signOut } = useAuth();
+  const [shop, setShop] = useState<Shop>(FALLBACK_SHOP);
+  const [unread, setUnread] = useState(0);
 
-export default async function PanelLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const user = await requireUser();
-  const [shop, unread] = await Promise.all([
-    getShop(),
-    unreadNotifications(user.id),
-  ]);
+  useEffect(() => {
+    fetchShop().then(setShop).catch(() => undefined);
+  }, []);
 
-  const profile = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { color: true },
-  });
-  const color = profile?.color ?? "#c2703d";
+  useEffect(() => {
+    if (!loading && !profile) router.replace("/login");
+  }, [loading, profile, router]);
+
+  useEffect(() => {
+    if (!profile) return;
+    fetchUnreadCount(profile.id).then(setUnread).catch(() => undefined);
+  }, [profile, pathname]);
+
+  if (loading || !profile) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[#f3ede3] text-stone-500">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  const color = profile.color || "#c2703d";
 
   return (
     <div className="min-h-dvh bg-[#f3ede3] lg:flex">
@@ -41,7 +53,7 @@ export default async function PanelLayout({
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-cream/30">
             Operación
           </p>
-          <PanelNav role={user.role} />
+          <PanelNav role={profile.role} />
         </div>
 
         <div className="mt-4 border-t border-white/10 pt-4">
@@ -53,26 +65,28 @@ export default async function PanelLayout({
               className="flex size-9 items-center justify-center rounded-full text-xs font-semibold"
               style={{ backgroundColor: `${color}33`, color }}
             >
-              {initials(user.name)}
+              {initials(profile.name)}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">
-                {user.name}
+                {profile.name}
               </span>
               <span className="block text-[10px] uppercase tracking-[0.14em] text-cream/40">
-                {user.role === "ADMIN" ? "Administrador" : "Barbero"}
+                {profile.role === "ADMIN" ? "Administrador" : "Barbero"}
               </span>
             </span>
           </Link>
-          <form action={logoutAction} className="mt-1">
-            <button
-              type="submit"
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-cream/45 transition hover:bg-white/5 hover:text-cream"
-            >
-              <LogOut className="size-3.5" />
-              Cerrar sesión
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={async () => {
+              await signOut();
+              router.replace("/login");
+            }}
+            className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-cream/45 transition hover:bg-white/5 hover:text-cream"
+          >
+            <LogOut className="size-3.5" />
+            Cerrar sesión
+          </button>
         </div>
       </aside>
 
@@ -99,10 +113,7 @@ export default async function PanelLayout({
                 <Plus className="size-3.5" />
                 Nueva cita
               </Link>
-              <Link
-                href="/"
-                className="btn-ghost hidden md:inline-flex"
-              >
+              <Link href="/" className="btn-ghost hidden md:inline-flex">
                 <ExternalLink className="size-4" />
                 Ver sitio
               </Link>
@@ -124,12 +135,12 @@ export default async function PanelLayout({
                 style={{ backgroundColor: `${color}26`, color }}
                 aria-label="Mi perfil"
               >
-                {initials(user.name)}
+                {initials(profile.name)}
               </Link>
             </div>
           </div>
           <div className="border-t border-line lg:hidden">
-            <PanelNav role={user.role} variant="mobile" />
+            <PanelNav role={profile.role} variant="mobile" />
           </div>
         </header>
 
@@ -138,5 +149,13 @@ export default async function PanelLayout({
         </main>
       </div>
     </div>
+  );
+}
+
+export default function PanelLayout({ children }: { children: ReactNode }) {
+  return (
+    <AuthProvider>
+      <PanelShell>{children}</PanelShell>
+    </AuthProvider>
   );
 }

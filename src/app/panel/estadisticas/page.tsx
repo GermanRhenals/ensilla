@@ -1,9 +1,13 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Banknote,
   CheckCircle2,
   Clock3,
+  Loader2,
   Repeat2,
   TrendingUp,
   UserPlus,
@@ -11,15 +15,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
 import { statusInfo } from "@/lib/constants";
+import { fetchShop } from "@/lib/data";
 import { formatMoney, initials } from "@/lib/format";
-import { getShop } from "@/lib/shop";
 import { getOverview } from "@/lib/stats";
-
-export const metadata: Metadata = {
-  title: "Estadísticas",
-};
+import { useAsync } from "@/lib/use-async";
 
 const ranges = [
   { days: 7, label: "7 días" },
@@ -27,23 +28,41 @@ const ranges = [
   { days: 90, label: "90 días" },
 ];
 
-export default async function StatsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ range?: string }>;
-}) {
-  const params = await searchParams;
-  const user = await requireUser();
-  const shop = await getShop();
-  const requested = Number(params.range);
+export default function StatsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <StatsContent />
+    </Suspense>
+  );
+}
+
+function StatsContent() {
+  const params = useSearchParams();
+  const { profile: user } = useAuth();
+  const requested = Number(params.get("range"));
   const days = ranges.some((range) => range.days === requested)
     ? requested
     : 30;
 
-  const overview = await getOverview({
-    days,
-    barberId: user.role === "ADMIN" ? undefined : user.id,
-  });
+  const { data } = useAsync(async () => {
+    const [shop, overview] = await Promise.all([
+      fetchShop(),
+      getOverview({
+        days,
+        barberId: user?.role === "ADMIN" ? undefined : user?.id,
+      }),
+    ]);
+    return { shop, overview };
+  }, `stats-${days}-${user?.id ?? ""}`);
+
+  if (!user || !data) return null;
+  const { shop, overview } = data;
 
   const maxDaily = Math.max(1, ...overview.daily.map((day) => day.count));
   const maxService = Math.max(

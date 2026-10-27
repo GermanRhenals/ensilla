@@ -3,8 +3,7 @@ import { es } from "date-fns/locale";
 import { BLOCKING_STATUSES } from "./constants";
 import { addDaysToKey, dateKey, parseDateKey, todayKey } from "./datetime";
 import { getAgenda } from "./agenda";
-import { prisma } from "./prisma";
-import { getShop } from "./shop";
+import { fetchAppointmentsSince, fetchShop } from "./data";
 
 export type Overview = {
   days: number;
@@ -43,7 +42,7 @@ export async function getOverview({
   days?: number;
   barberId?: string;
 } = {}): Promise<Overview> {
-  const shop = await getShop();
+  const shop = await fetchShop();
   const tz = shop.timezone;
   const safeDays = Math.min(Math.max(days, 1), 365);
   const today = todayKey(tz);
@@ -51,17 +50,11 @@ export async function getOverview({
   const start = parseDateKey(startKey, tz);
   const now = new Date();
 
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      ...(barberId ? { barberId } : {}),
-      start: { gte: start, lte: now },
-    },
-    include: {
-      service: { select: { name: true } },
-      barber: { select: { id: true, name: true, color: true } },
-      client: { select: { id: true, createdAt: true } },
-    },
-  });
+  const appointments = await fetchAppointmentsSince(
+    start.toISOString(),
+    now.toISOString(),
+    barberId,
+  );
 
   const completed = appointments.filter((a) => a.status === "COMPLETED");
   const revenueCents = completed.reduce((total, a) => total + a.priceCents, 0);
@@ -73,7 +66,9 @@ export async function getOverview({
       appointment.clientId,
       (clientVisits.get(appointment.clientId) ?? 0) + 1,
     );
-    clientCreated.set(appointment.clientId, appointment.client.createdAt);
+    if (appointment.client?.createdAt) {
+      clientCreated.set(appointment.clientId, new Date(appointment.client.createdAt));
+    }
   }
 
   let returningClients = 0;
@@ -117,34 +112,38 @@ export async function getOverview({
   }));
 
   for (const appointment of completed) {
-    const key = dateKey(appointment.start, tz);
+    const key = dateKey(new Date(appointment.start), tz);
     const day = dailyMap.get(key);
     if (day) {
       day.count += 1;
       day.revenueCents += appointment.priceCents;
     }
 
-    const service = serviceMap.get(appointment.service.name) ?? {
-      name: appointment.service.name,
+    const serviceName = appointment.service?.name ?? "Sin servicio";
+    const service = serviceMap.get(serviceName) ?? {
+      name: serviceName,
       count: 0,
       revenueCents: 0,
     };
     service.count += 1;
     service.revenueCents += appointment.priceCents;
-    serviceMap.set(appointment.service.name, service);
+    serviceMap.set(serviceName, service);
 
-    const barber = barberMap.get(appointment.barber.id) ?? {
-      id: appointment.barber.id,
-      name: appointment.barber.name,
-      color: appointment.barber.color,
-      count: 0,
-      revenueCents: 0,
-    };
-    barber.count += 1;
-    barber.revenueCents += appointment.priceCents;
-    barberMap.set(appointment.barber.id, barber);
+    const barberInfo = appointment.barber;
+    if (barberInfo) {
+      const barber = barberMap.get(barberInfo.id) ?? {
+        id: barberInfo.id,
+        name: barberInfo.name,
+        color: barberInfo.color,
+        count: 0,
+        revenueCents: 0,
+      };
+      barber.count += 1;
+      barber.revenueCents += appointment.priceCents;
+      barberMap.set(barberInfo.id, barber);
+    }
 
-    const hour = Number(formatInTimeZone(appointment.start, tz, "H"));
+    const hour = Number(formatInTimeZone(new Date(appointment.start), tz, "H"));
     const bucket = hours.find((h) => h.hour === hour);
     if (bucket) bucket.count += 1;
   }
@@ -183,15 +182,15 @@ export async function getOverview({
 }
 
 export async function getTodaySummary(barberId?: string) {
-  const tz = (await getShop()).timezone;
+  const tz = (await fetchShop()).timezone;
   const agenda = await getAgenda(todayKey(tz), { barberId });
-  const now = new Date();
+  const now = new Date().toISOString();
 
   const all = agenda.barbers.flatMap((barber) => barber.appointments);
   const upcoming = all
     .filter(
       (appointment) =>
-        appointment.start > now.toISOString() &&
+        appointment.start > now &&
         (appointment.status === "CONFIRMED" ||
           appointment.status === "PENDING"),
     )

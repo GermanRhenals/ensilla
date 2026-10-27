@@ -68,3 +68,17 @@ export function buildIcs({
 
   return `${lines.map(fold).join("\r\n")}\r\n`;
 }
+
+export function downloadIcs(content: string, filename: string) {
+  const blob = new Blob([content], {
+    type: "text/calendar;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}

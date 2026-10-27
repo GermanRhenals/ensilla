@@ -42,6 +42,11 @@ export function PanelNav({
   variant?: "sidebar" | "mobile";
 }) {
   const pathname = usePathname();
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const current =
+    basePath && pathname.startsWith(basePath)
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
   const items = [
     ...baseItems,
     ...(role === "ADMIN" ? adminItems : []),
@@ -49,7 +54,7 @@ export function PanelNav({
   ];
 
   const isActive = (href: string) =>
-    href === "/panel" ? pathname === "/panel" : pathname.startsWith(href);
+    href === "/panel" ? current === "/panel" : current.startsWith(href);
 
   if (variant === "mobile") {
     return (

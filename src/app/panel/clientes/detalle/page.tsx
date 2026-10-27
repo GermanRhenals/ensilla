@@ -1,11 +1,14 @@
-import type { Metadata } from "next";
+"use client";
+
+import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   CalendarDays,
   CalendarPlus,
   Lightbulb,
+  Loader2,
   Mail,
   MessageCircle,
   Phone,
@@ -15,60 +18,65 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import {
-  addIdeaAction,
-  deleteIdeaAction,
-  updateClientAction,
-} from "@/app/actions/clients";
 import { Flash } from "@/components/ui/flash";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { requireUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { normalizePhone } from "@/lib/booking";
+import {
+  addIdea,
+  deleteIdea,
+  fetchClientDetail,
+  fetchPublicBarbers,
+  fetchShop,
+  updateClientRecord,
+} from "@/lib/data";
 import { formatDate, formatTime } from "@/lib/datetime";
 import { formatMoney, initials, whatsappLink } from "@/lib/format";
 import { suggestIdeas } from "@/lib/ideas";
-import { prisma } from "@/lib/prisma";
-import { getActiveBarbers, getShop } from "@/lib/shop";
+import { useAsync } from "@/lib/use-async";
 
-export const metadata: Metadata = {
-  title: "Ficha del cliente",
-};
+export default function ClientDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20 text-stone-400">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <ClientDetailContent />
+    </Suspense>
+  );
+}
 
-export default async function ClientDetailPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<{ ok?: string; error?: string }>;
-}) {
-  await requireUser();
-  const [{ id }, query, shop, barbers] = await Promise.all([
-    params,
-    searchParams,
-    getShop(),
-    getActiveBarbers(),
-  ]);
+function ClientDetailContent() {
+  const params = useSearchParams();
+  const id = params.get("id") ?? "";
+  const { profile } = useAuth();
+  const [message, setMessage] = useState<string | null>(params.get("ok"));
+  const [error, setError] = useState<string | null>(params.get("error"));
+
+  const { data, reload } = useAsync(async () => {
+    if (!id) return null;
+    const [shop, barbers, client] = await Promise.all([
+      fetchShop(),
+      fetchPublicBarbers(),
+      fetchClientDetail(id),
+    ]);
+    return { shop, barbers, client };
+  }, `client-${id}`);
+
+  if (!profile || !data) return null;
+  if (!data.client) {
+    return (
+      <div className="card card-pad text-center text-sm text-stone-500">
+        No encontramos esa ficha.
+      </div>
+    );
+  }
+
+  const { shop, barbers, client } = data;
   const tz = shop.timezone;
-
-  const client = await prisma.client.findUnique({
-    where: { id },
-    include: {
-      preferredBarber: { select: { id: true, name: true, color: true } },
-      ideas: {
-        orderBy: { createdAt: "desc" },
-        include: { createdBy: { select: { name: true } } },
-      },
-      appointments: {
-        orderBy: { start: "desc" },
-        take: 100,
-        include: {
-          service: { select: { name: true, durationMin: true } },
-          barber: { select: { name: true, color: true } },
-        },
-      },
-    },
-  });
-
-  if (!client) notFound();
 
   const completed = client.appointments.filter(
     (appointment) => appointment.status === "COMPLETED",
@@ -81,11 +89,11 @@ export default async function ClientDetailPage({
   const upcoming = client.appointments
     .filter(
       (appointment) =>
-        appointment.start > new Date() &&
+        new Date(appointment.start) > new Date() &&
         (appointment.status === "CONFIRMED" ||
           appointment.status === "PENDING"),
     )
-    .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
+    .sort((a, b) => a.start.localeCompare(b.start))[0];
 
   const savedTitles = new Set(client.ideas.map((idea) => idea.title));
   const suggestions = suggestIdeas(client, {
@@ -93,6 +101,77 @@ export default async function ClientDetailPage({
   })
     .filter((suggestion) => !savedTitles.has(suggestion.title))
     .slice(0, 3);
+
+  async function saveClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    try {
+      await updateClientRecord(client.id, {
+        name: String(formData.get("name") || "").trim(),
+        phone: normalizePhone(String(formData.get("phone") || "")),
+        email: String(formData.get("email") || "").trim() || null,
+        birth_date: String(formData.get("birthDate") || "") || null,
+        hair_type: String(formData.get("hairType") || "").trim() || null,
+        preferred_style:
+          String(formData.get("preferredStyle") || "").trim() || null,
+        products: String(formData.get("products") || "").trim() || null,
+        allergies: String(formData.get("allergies") || "").trim() || null,
+        preferred_barber_id:
+          String(formData.get("preferredBarberId") || "") || null,
+        notes: String(formData.get("notes") || "").trim() || null,
+      });
+      setMessage("Ficha actualizada.");
+      reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudo guardar la ficha.",
+      );
+    }
+  }
+
+  async function saveIdea(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    try {
+      await addIdea({
+        clientId: client.id,
+        title: String(formData.get("title") || ""),
+        description: String(formData.get("description") || ""),
+        tags: String(formData.get("tags") || ""),
+      });
+      event.currentTarget.reset();
+      setMessage("Idea guardada.");
+      reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudo guardar la idea.",
+      );
+    }
+  }
+
+  async function removeIdea(ideaId: string) {
+    setMessage(null);
+    setError(null);
+    try {
+      await deleteIdea(ideaId);
+      setMessage("Idea eliminada.");
+      reload();
+    } catch (removeError) {
+      setError(
+        removeError instanceof Error
+          ? removeError.message
+          : "No se pudo eliminar la idea.",
+      );
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -105,10 +184,7 @@ export default async function ClientDetailPage({
           Volver a clientes
         </Link>
         <div className="flex flex-wrap gap-2">
-          <a
-            href={`tel:${client.phone}`}
-            className="btn-secondary btn-sm"
-          >
+          <a href={`tel:${client.phone}`} className="btn-secondary btn-sm">
             <Phone className="size-3.5" />
             Llamar
           </a>
@@ -134,7 +210,7 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      <Flash ok={query.ok} error={query.error} />
+      <Flash ok={message ?? undefined} error={error ?? undefined} />
 
       <div className="card overflow-hidden">
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -160,7 +236,7 @@ export default async function ClientDetailPage({
                 {client.birthDate && (
                   <span className="inline-flex items-center gap-1.5">
                     <CalendarDays className="size-3" />
-                    {formatDate(client.birthDate, "d 'de' MMMM", tz)}
+                    {formatDate(new Date(client.birthDate), "d 'de' MMMM", tz)}
                   </span>
                 )}
               </div>
@@ -186,10 +262,7 @@ export default async function ClientDetailPage({
 
         <div className="grid grid-cols-2 divide-x divide-line border-t border-line sm:grid-cols-4">
           {[
-            {
-              label: "Visitas completadas",
-              value: completed.length,
-            },
+            { label: "Visitas completadas", value: completed.length },
             {
               label: "Total gastado",
               value: formatMoney(totalSpent, shop.currency),
@@ -197,13 +270,13 @@ export default async function ClientDetailPage({
             {
               label: "Última visita",
               value: lastVisit
-                ? formatDate(lastVisit, "d MMM yyyy", tz)
+                ? formatDate(new Date(lastVisit), "d MMM yyyy", tz)
                 : "Sin visitas",
             },
             {
               label: "Próximo turno",
               value: upcoming
-                ? `${formatDate(upcoming.start, "d MMM", tz)} · ${formatTime(upcoming.start, tz)}`
+                ? `${formatDate(new Date(upcoming.start), "d MMM", tz)} · ${formatTime(new Date(upcoming.start), tz)}`
                 : "Sin agendar",
             },
           ].map((item) => (
@@ -232,8 +305,11 @@ export default async function ClientDetailPage({
               </span>
             </div>
 
-            <form action={updateClientAction} className="mt-4 space-y-3.5">
-              <input type="hidden" name="id" value={client.id} />
+            <form
+              key={client.updatedAt}
+              onSubmit={saveClient}
+              className="mt-4 space-y-3.5"
+            >
               <div className="grid gap-3.5 sm:grid-cols-2">
                 <div>
                   <label className="label" htmlFor="name">
@@ -284,11 +360,7 @@ export default async function ClientDetailPage({
                     id="birthDate"
                     name="birthDate"
                     type="date"
-                    defaultValue={
-                      client.birthDate
-                        ? formatDate(client.birthDate, "yyyy-MM-dd", tz)
-                        : ""
-                    }
+                    defaultValue={client.birthDate ?? ""}
                     className="input"
                   />
                 </div>
@@ -420,24 +492,24 @@ export default async function ClientDetailPage({
                       >
                         <td className="whitespace-nowrap px-4 py-2.5">
                           <Link
-                            href={`/panel/citas/${appointment.id}`}
+                            href={`/panel/citas/detalle?id=${appointment.id}`}
                             className="font-medium hover:text-copper"
                           >
                             {formatDate(
-                              appointment.start,
+                              new Date(appointment.start),
                               "d MMM yy",
                               tz,
                             )}
                           </Link>
                           <p className="text-[10px] tabular-nums text-stone-400">
-                            {formatTime(appointment.start, tz)}
+                            {formatTime(new Date(appointment.start), tz)}
                           </p>
                         </td>
                         <td className="px-4 py-2.5">
-                          {appointment.service.name}
+                          {appointment.service?.name}
                         </td>
                         <td className="px-4 py-2.5">
-                          {appointment.barber.name.split(" ")[0]}
+                          {appointment.barber?.name.split(" ")[0]}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2.5">
                           {formatMoney(appointment.priceCents, shop.currency)}
@@ -481,27 +553,33 @@ export default async function ClientDetailPage({
                     <p className="mt-1 pl-5 text-xs leading-relaxed text-stone-500">
                       {suggestion.description}
                     </p>
-                    <form action={addIdeaAction} className="mt-2 pl-5">
-                      <input type="hidden" name="clientId" value={client.id} />
-                      <input
-                        type="hidden"
-                        name="title"
-                        value={suggestion.title}
-                      />
-                      <input
-                        type="hidden"
-                        name="description"
-                        value={suggestion.description}
-                      />
-                      <input type="hidden" name="tags" value={suggestion.tags} />
-                      <button
-                        type="submit"
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-copper"
-                      >
-                        <Plus className="size-3" />
-                        Guardar en la ficha
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setMessage(null);
+                        setError(null);
+                        try {
+                          await addIdea({
+                            clientId: client.id,
+                            title: suggestion.title,
+                            description: suggestion.description,
+                            tags: suggestion.tags,
+                          });
+                          setMessage("Idea guardada.");
+                          reload();
+                        } catch (saveError) {
+                          setError(
+                            saveError instanceof Error
+                              ? saveError.message
+                              : "No se pudo guardar la idea.",
+                          );
+                        }
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 pl-5 text-[11px] font-semibold text-copper"
+                    >
+                      <Plus className="size-3" />
+                      Guardar en la ficha
+                    </button>
                   </div>
                 ))}
               </div>
@@ -524,28 +602,21 @@ export default async function ClientDetailPage({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-xs font-semibold">{idea.title}</p>
-                        <form action={deleteIdeaAction}>
-                          <input type="hidden" name="id" value={idea.id} />
-                          <input
-                            type="hidden"
-                            name="clientId"
-                            value={client.id}
-                          />
-                          <button
-                            type="submit"
-                            className="text-stone-300 transition hover:text-rose-500"
-                            aria-label="Eliminar idea"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </form>
+                        <button
+                          type="button"
+                          onClick={() => removeIdea(idea.id)}
+                          className="text-stone-300 transition hover:text-rose-500"
+                          aria-label="Eliminar idea"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
                       </div>
                       <p className="mt-1 text-[11px] leading-relaxed text-stone-500">
                         {idea.description}
                       </p>
                       <p className="mt-1.5 text-[10px] text-stone-400">
                         {idea.createdBy?.name ?? "Equipo"} ·{" "}
-                        {formatDate(idea.createdAt, "d MMM", tz)}
+                        {formatDate(new Date(idea.createdAt), "d MMM", tz)}
                       </p>
                     </div>
                   ))}
@@ -554,10 +625,9 @@ export default async function ClientDetailPage({
             </div>
 
             <form
-              action={addIdeaAction}
+              onSubmit={saveIdea}
               className="mt-4 space-y-2.5 border-t border-amber/20 pt-4"
             >
-              <input type="hidden" name="clientId" value={client.id} />
               <div>
                 <label className="label" htmlFor="idea-title">
                   Nueva idea
