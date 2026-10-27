@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #18120f;
+  --color-ink-soft: #241a15;
+  --color-cream: #f8f3ea;
+  --color-sand: #efe5d6;
+  --color-sand-dark: #e4d6c2;
+  --color-line: #e2d7c7;
+  --color-copper: #c2703d;
+  --color-copper-dark: #9d5425;
+  --color-copper-soft: #f5e4d5;
+  --color-sage: #3f7d6c;
+  --color-plum: #7c5cbf;
+  --color-amber: #e3a857;
+
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-display: Georgia, "Iowan Old Style", "Palatino Linotype",
+    "Book Antiqua", "Times New Roman", serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-cream font-sans text-ink antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-copper);
+    color: white;
+  }
+
+  input[type="date"],
+  input[type="time"] {
+    color-scheme: light;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+  }
+
+  .card {
+    @apply rounded-2xl border border-line bg-white;
+  }
+
+  .card-pad {
+    @apply p-5 sm:p-6;
+  }
+
+  .label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-stone-400 focus:border-copper focus:ring-4 focus:ring-copper/10;
+  }
+
+  .textarea {
+    @apply w-full resize-y rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-stone-400 focus:border-copper focus:ring-4 focus:ring-copper/10;
+  }
+
+  .select {
+    @apply w-full appearance-none rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-copper focus:ring-4 focus:ring-copper/10;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-copper px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-copper-dark disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-dark {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-cream transition hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-stone-600 transition hover:bg-sand hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-stone-600;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset;
+  }
+
+  .link-muted {
+    @apply text-sm font-medium text-stone-500 underline decoration-line underline-offset-4 transition hover:text-copper;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade {
+  animation: fade 0.5s ease-out both;
+}
+
+.hero-grain {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(194, 112, 61, 0.28), transparent 42%),
+    radial-gradient(circle at 80% 0%, rgba(227, 168, 87, 0.16), transparent 36%),
+    radial-gradient(circle at 60% 90%, rgba(63, 125, 108, 0.16), transparent 40%);
+}
+
+.ticket-edge {
+  mask-image: radial-gradient(circle at 0 50%, transparent 9px, black 10px),
+    radial-gradient(circle at 100% 50%, transparent 9px, black 10px);
+  mask-composite: intersect;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-sand-dark) transparent;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background-color: var(--color-sand-dark);
+  border-radius: 999px;
+}

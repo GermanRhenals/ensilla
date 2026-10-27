@@ -1,0 +1,97 @@
+import type { Metadata } from "next";
+import { CalendarCheck, Clock3, MapPin } from "lucide-react";
+import { BookingWizard } from "@/components/booking/booking-wizard";
+import { nextDays } from "@/lib/datetime";
+import { getActiveBarbers, getBusinessHours, getShop } from "@/lib/shop";
+import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Reservar turno",
+  description: "Elegí servicio, barbero y horario en menos de un minuto.",
+};
+
+export default async function BookingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ service?: string; barber?: string }>;
+}) {
+  const params = await searchParams;
+  const [shop, barbers, hours, services] = await Promise.all([
+    getShop(),
+    getActiveBarbers(),
+    getBusinessHours(),
+    prisma.service.findMany({
+      where: { active: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+  ]);
+
+  const closedWeekdays = [0, 1, 2, 3, 4, 5, 6].filter(
+    (weekday) => !hours.some((hour) => hour.weekday === weekday && hour.active),
+  );
+  const days = nextDays(shop.bookingWindowDays, closedWeekdays, shop.timezone);
+
+  return (
+    <div className="bg-sand/40">
+      <div className="container-page py-8 sm:py-12">
+        <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-copper">
+              Reserva online
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+              Buscá tu lugar en la silla.
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-stone-500">
+              Elegí servicio, barbero y horario. Te esperamos con todo listo,
+              sin vueltas y sin llamadas.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-stone-500">
+            <span className="inline-flex items-center gap-1.5">
+              <Clock3 className="size-3.5 text-copper" />
+              {shop.bookingWindowDays} días de agenda
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarCheck className="size-3.5 text-copper" />
+              Confirmación inmediata
+            </span>
+            {shop.address && (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5 text-copper" />
+                {shop.address}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <BookingWizard
+          services={services.map((service) => ({
+            id: service.id,
+            name: service.name,
+            description: service.description,
+            durationMin: service.durationMin,
+            priceCents: service.priceCents,
+          }))}
+          barbers={barbers.map((barber) => ({
+            id: barber.id,
+            name: barber.name,
+            color: barber.color,
+            bio: barber.bio,
+          }))}
+          days={days}
+          shop={{
+            name: shop.name,
+            timezone: shop.timezone,
+            currency: shop.currency,
+            whatsapp: shop.whatsapp,
+          }}
+          initialServiceId={params.service}
+          initialBarberId={params.barber}
+        />
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ShopSetting {
+  id              Int      @id @default(1)
+  name            String   @default("En-silla Barber Club")
+  tagline         String   @default("Cortes con memoria")
+  description     String?
+  address         String?
+  phone           String?
+  whatsapp        String?
+  email           String?
+  instagram       String?
+  currency        String   @default("ARS")
+  timezone        String   @default("America/Argentina/Buenos_Aires")
+  slotStepMin     Int      @default(15)
+  bufferMin       Int      @default(10)
+  leadTimeMin     Int      @default(60)
+  bookingWindowDays Int    @default(21)
+  updatedAt       DateTime @updatedAt
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  passwordHash   String
+  role           String         @default("BARBER")
+  phone          String?
+  bio            String?
+  color          String         @default("#c2703d")
+  active         Boolean        @default(true)
+  appointments   Appointment[]
+  notifications  Notification[]
+  preferredBy    Client[]       @relation("ClientPreferredBarber")
+  timeOff        TimeOff[]
+  ideas          HaircutIdea[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model BusinessHour {
+  id          String  @id @default(cuid())
+  weekday     Int     @unique
+  openMinute  Int
+  closeMinute Int
+  active      Boolean @default(true)
+}
+
+model TimeOff {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  start     DateTime
+  end       DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([start, end])
+}
+
+model Client {
+  id                String         @id @default(cuid())
+  name              String
+  phone             String         @unique
+  email             String?
+  birthDate         DateTime?
+  notes             String?
+  hairType          String?
+  preferredStyle    String?
+  products          String?
+  allergies         String?
+  preferredBarberId String?
+  preferredBarber   User?          @relation("ClientPreferredBarber", fields: [preferredBarberId], references: [id], onDelete: SetNull)
+  appointments      Appointment[]
+  ideas             HaircutIdea[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([name])
+}
+
+model Service {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  durationMin Int
+  priceCents  Int
+  active      Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  appointments Appointment[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  clientId        String
+  barberId        String
+  serviceId       String
+  start           DateTime
+  end             DateTime
+  status          String   @default("CONFIRMED")
+  priceCents      Int
+  notes           String?
+  source          String   @default("PUBLIC")
+  reminderSentAt  DateTime?
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  barber          User     @relation(fields: [barberId], references: [id], onDelete: Restrict)
+  service         Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([barberId, start])
+  @@index([clientId])
+  @@index([start])
+}
+
+model HaircutIdea {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  tags        String?
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([clientId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
