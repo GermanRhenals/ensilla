@@ -29,6 +29,9 @@ yarn-error.log*
 # Despliegue
 .vercel
 
+# Respaldos lógicos previos a migraciones (contienen datos reales)
+/.backups
+
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts

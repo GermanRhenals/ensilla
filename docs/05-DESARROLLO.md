@@ -343,6 +343,7 @@ escalada de privilegios. El envío real de correo queda opt-in con
 
 ## Publicación
 
-El CI valida cada push y PR a `main`. El despliegue se dispara a mano con el
-workflow **Deploy to GitHub Pages** una vez que el CI está en verde. Ver
+El CI valida cada push y PR a `main`. El workflow **Deploy to GitHub Pages** se
+dispara con cada push a `main` y también se puede ejecutar a mano. Como publica
+el build del navegador, la migración de Supabase va antes del merge. Ver
 `docs/04-OPERACION.md`.

@@ -1,6 +1,10 @@
 name: Deploy to GitHub Pages
 
 on:
+  # Se publica solo al entrar código en `main`: el CI ya validó el commit que
+  # llega por PR. `workflow_dispatch` queda para republicar sin cambios.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

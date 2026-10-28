@@ -151,8 +151,10 @@ operativo para quien edita el código.
 ## Despliegue y entorno
 
 - `NEXT_PUBLIC_BASE_PATH` debe ser `/<nombre-del-repositorio>` en GitHub Pages.
-- `deploy.yml` se ejecuta a mano (`workflow_dispatch`); `ci.yml` verifica cada
-  push y pull request a `main`.
+- `deploy.yml` se dispara con cada push a `main` (y a mano con
+  `workflow_dispatch`); `ci.yml` verifica cada push y pull request a `main`. La
+  migración de Supabase se aplica antes del merge, porque el push publica el
+  frontend.
 - El registro público de Supabase Auth debe estar desactivado. Las cuentas se
   crean desde el panel o con `create-shop`. Si se habilita, los usuarios nuevos
   nacen inactivos por la migración de endurecimiento.
