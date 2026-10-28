@@ -22,7 +22,10 @@ puede pisar la operación.
 2. En **Authentication > Sign In / Providers > Email**, desactivar
    **Allow new users to sign up**. Las cuentas las crea un administrador.
 3. En **Authentication > URL Configuration**, definir el sitio de GitHub Pages
-   como `Site URL` y agregarlo a `Redirect URLs`.
+   como `Site URL` y agregarlo a `Redirect URLs`, junto con la ruta de
+   recuperación (`https://<sitio>/restablecer/` y `http://localhost:3000/restablecer/`).
+   Sin la barra final y sin esa entrada, el enlace del correo no puede cambiar
+   la contraseña.
 4. Aplicar las migraciones:
 
    ```bash
@@ -155,6 +158,23 @@ activa en todas las políticas. La suspensión se aplica con la clave de servici
 `active` no está entre las columnas que el panel puede escribir. Para una baja
 real, exportar los datos y evaluar el borrado manual con respaldo previo.
 
+## Contraseñas olvidadas
+
+El usuario entra a `/recuperar`, escribe el correo de su cuenta y recibe un
+enlace de un solo uso que vence en una hora. `/restablecer` le permite elegir la
+contraseña nueva y cierra la sesión de recuperación.
+
+Si el correo no llega:
+
+1. Revisar la carpeta de spam y que la cuenta exista en `auth.users`.
+2. Confirmar que `.../restablecer/` está en Authentication > URL Configuration.
+3. Revisar el límite de envíos de Supabase Auth. Para producción, configurar
+   SMTP propio en **Authentication > Emails**.
+4. Si el enlace ya se usó o venció, pedir uno nuevo desde `/recuperar`.
+
+Un administrador también puede cambiar la contraseña de un miembro del equipo
+desde el panel, sin pasar por el correo.
+
 ## Respaldos
 
 | Qué | Cómo | Frecuencia |
@@ -278,6 +298,8 @@ cuentas con doble factor.
 | Error al invocar `admin-users` | Función no desplegada o secreto faltante | `npx supabase functions deploy admin-users` |
 | "El envío de correos todavía no está configurado" | Faltan secretos de Resend | Configurar `RESEND_API_KEY` y `REMINDER_FROM_EMAIL` |
 | El recordatorio no llega | Dominio sin verificar, rebote o correo inválido | Revisar Resend > Emails y la ficha del cliente |
+| El enlace de recuperación vuelve a la portada | Falta la URL en Redirect URLs | Agregar `<sitio>/restablecer/` en Authentication > URL Configuration |
+| No llega el correo de recuperación | SMTP incluido con límites, spam o cuenta inexistente | Configurar SMTP propio y revisar la carpeta de spam |
 | Un usuario ve datos de otra barbería | `profiles.shop_id` incorrecto | Corregir el perfil con la clave de servicio y revisar políticas |
 | Reservas públicas rechazadas por teléfono | Límite anti-abuso (3 por hora) | Esperar o registrar el turno desde el panel |
 

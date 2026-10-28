@@ -26,6 +26,7 @@ function LoginForm() {
     searchParams.get("error") ?? null,
   );
   const [loading, setLoading] = useState(false);
+  const resetDone = searchParams.get("reset") === "1";
 
   async function enter(nextEmail: string, nextPassword: string) {
     setError(null);
@@ -103,7 +104,15 @@ function LoginForm() {
             Ingresá con tu cuenta para abrir la agenda de hoy.
           </p>
 
-          <Flash error={error ?? undefined} className="mt-5" />
+          <Flash
+            ok={
+              resetDone
+                ? "Tu contraseña se actualizó. Ingresá con la nueva."
+                : undefined
+            }
+            error={error ?? undefined}
+            className="mt-5"
+          />
 
           <form
             className="mt-5 space-y-4"
@@ -128,9 +137,17 @@ function LoginForm() {
               />
             </div>
             <div>
-              <label className="label" htmlFor="password">
-                Contraseña
-              </label>
+              <div className="flex items-center justify-between gap-3">
+                <label className="label" htmlFor="password">
+                  Contraseña
+                </label>
+                <Link
+                  href="/recuperar"
+                  className="text-xs font-medium text-copper transition hover:text-ink"
+                >
+                  ¿La olvidaste?
+                </Link>
+              </div>
               <input
                 id="password"
                 type="password"

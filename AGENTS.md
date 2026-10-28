@@ -36,7 +36,8 @@ operativo para quien edita el código.
   `/reservar/confirmacion`.
 - `/` muestra el buscador; `/reservar?barberia=<slug>` resuelve la barbería.
   Sin slug válido se vuelve al buscador, no a un error técnico.
-- Login en `src/app/login`; todo el resto vive bajo `src/app/panel`.
+- Login en `src/app/login`; recuperación de contraseña en `/recuperar` y
+  `/restablecer`; todo el resto vive bajo `src/app/panel`.
 - No hay `middleware` ni `proxy`: la protección real es RLS en Postgres. El
   panel redirige a `/login` cuando no hay perfil, pero eso es solo experiencia
   de usuario.
@@ -51,6 +52,10 @@ operativo para quien edita el código.
   spinners infinitos.
 - La autenticación es Supabase Auth. `AuthProvider` (`src/lib/auth-context.tsx`)
   carga el perfil y cierra la sesión si el perfil no existe o está inactivo.
+- La recuperación de contraseña usa `resetPasswordForEmail` y procesa el enlace
+  a mano en `/restablecer`, porque el cliente tiene `detectSessionInUrl: false`.
+  La URL de retorno incluye el `basePath` y debe estar registrada en
+  Authentication > URL Configuration como `.../restablecer/`.
 
 ## Multi-barbería
 
@@ -171,6 +176,10 @@ operativo para quien edita el código.
   vuelven a validar servicio, barbero y turno.
 - El enlace de confirmación es la única credencial del cliente: no registrar
   esos UUID en logs ni en analytics.
+- No activar `detectSessionInUrl` sin quitar antes el procesamiento manual de
+  `/restablecer`: los tokens de recuperación se aplicarían dos veces.
+- El enlace de recuperación es de un solo uso y vence en una hora; no mostrarlo
+  en logs ni reutilizarlo en pruebas con datos reales.
 - El build estático falla si una página usa APIs exclusivas del servidor.
 
 <!-- BEGIN:nextjs-agent-rules -->

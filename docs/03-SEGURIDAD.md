@@ -89,6 +89,10 @@ Cualquier columna fuera de esa lista está protegida por `revoke update` y
 ## Autenticación
 
 - Supabase Auth con correo y contraseña. No hay registro público.
+- Recuperación de contraseña con `resetPasswordForEmail`: el enlace es de un
+  solo uso, vence en una hora y vuelve a `/restablecer/`. Esa URL debe estar en
+  la lista blanca de Authentication > URL Configuration. La sesión temporal de
+  recuperación se cierra después de guardar la contraseña.
 - La sesión se guarda en el navegador (persistencia de Supabase). El token se
   renueva automáticamente.
 - El perfil se carga después del login. Si no existe o está inactivo, se cierra

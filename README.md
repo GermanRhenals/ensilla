@@ -103,6 +103,14 @@ esquema. No se editan una vez aplicadas: los cambios se agregan como una
 migración nueva. La migración `20261029000000_multi_shop.sql` convierte el
 esquema de barbería única en marketplace y conserva los datos existentes.
 
+> **Recuperación de contraseña:** en **Authentication > URL Configuration**
+> agregar a `Redirect URLs` la ruta de retorno del despliegue:
+> `http://localhost:3000/restablecer/` y
+> `https://<usuario>.github.io/<repositorio>/restablecer/`. Sin esa entrada, el
+> enlace del correo vuelve a la portada. Para producción conviene configurar
+> SMTP propio en **Authentication > Emails**: el servicio incluido tiene
+> límites bajos.
+
 ### 5. Desplegar las Edge Functions
 
 ```bash

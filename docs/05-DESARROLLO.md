@@ -126,6 +126,19 @@ export async function fetchSomething(id: string) {
 - "Cerrar" vuelve a la portada; el enlace de la barbería queda en el pie para
   reservar de nuevo.
 
+## Autenticación y recuperación
+
+- `/login` inicia sesión; `/recuperar` pide el enlace por correo y
+  `/restablecer` define la contraseña nueva.
+- El cliente de Supabase tiene `detectSessionInUrl: false`: `/restablecer`
+  procesa los tokens del hash o el código PKCE, limpia la URL y recién entonces
+  llama a `updateUser`.
+- La URL de retorno se arma con `recoveryRedirectUrl()` e incluye el
+  `NEXT_PUBLIC_BASE_PATH`. Debe estar registrada en Authentication > URL
+  Configuration como `.../restablecer/`.
+- No revelar si el correo existe: `resetPasswordForEmail` responde igual en
+  ambos casos. Tras guardar la contraseña se cierra la sesión de recuperación.
+
 ## Reglas para SQL
 
 1. Migración nueva por cada cambio. Nunca editar una aplicada.
@@ -289,6 +302,9 @@ No hay suite automatizada. Antes de publicar, recorrer:
 10. Un usuario `BARBER` no ve Ajustes, Equipo ni Servicios.
 11. Un usuario desactivado no puede entrar.
 12. La búsqueda de clientes encuentra por nombre y por teléfono.
+13. "¿La olvidaste?" envía el correo, el enlace abre `/restablecer/` y la
+    contraseña nueva permite entrar. Un enlace vencido o reutilizado muestra el
+    mensaje de error, nunca el formulario.
 
 El smoke test cubre el circuito de datos:
 
