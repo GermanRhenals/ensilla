@@ -10,6 +10,7 @@ import {
   Clock,
   Download,
   Loader2,
+  Mail,
   MessageCircle,
   Phone,
   Scissors,
@@ -24,7 +25,7 @@ import type { AppointmentStatus } from "@/lib/constants";
 import {
   fetchAppointmentDetail,
   fetchShop,
-  markReminderSent,
+  sendBookingReminder,
   updateAppointmentNotes,
   updateAppointmentStatus,
 } from "@/lib/data";
@@ -66,7 +67,7 @@ function AppointmentDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!id) return null;
     const [shop, appointment] = await Promise.all([
       fetchShop(),
@@ -75,6 +76,7 @@ function AppointmentDetailContent() {
     return { shop, appointment };
   }, `appointment-${id}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (!data.appointment) {
     return (
@@ -148,13 +150,31 @@ function AppointmentDetailContent() {
         location: shop.address ?? undefined,
       });
       downloadIcs(content, `turno-${appointment.id.slice(0, 8)}.ics`);
-      await markReminderSent(appointment.id);
     } catch (downloadError) {
       setError(
         downloadError instanceof Error
           ? downloadError.message
           : "No se pudo descargar el calendario.",
       );
+    }
+  }
+
+  async function sendReminder() {
+    setMessage(null);
+    setError(null);
+    setPending("reminder");
+    try {
+      await sendBookingReminder(appointment.id);
+      setMessage("Recordatorio enviado al correo del cliente.");
+      reload();
+    } catch (sendError) {
+      setError(
+        sendError instanceof Error
+          ? sendError.message
+          : "No se pudo enviar el recordatorio.",
+      );
+    } finally {
+      setPending(null);
     }
   }
 
@@ -196,6 +216,21 @@ function AppointmentDetailContent() {
               <Download className="size-3.5" />
               Calendario
             </button>
+            {client.email && (
+              <button
+                type="button"
+                onClick={sendReminder}
+                disabled={pending !== null}
+                className="btn-secondary btn-sm"
+              >
+                {pending === "reminder" ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Mail className="size-3.5" />
+                )}
+                Recordatorio
+              </button>
+            )}
             <a
               href={whatsappLink(
                 client.phone,

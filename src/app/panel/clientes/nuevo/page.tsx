@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Sparkles, UserPlus } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
-import { normalizePhone } from "@/lib/booking";
-import { createClientRecord, fetchPublicBarbers } from "@/lib/data";
+import { normalizePhone } from "@/lib/phone";
+import { createClientRecord, fetchActiveBarbers } from "@/lib/data";
 import { useAsync } from "@/lib/use-async";
 
 export default function NewClientPage() {
@@ -15,11 +15,12 @@ export default function NewClientPage() {
   const { profile } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const { data } = useAsync(async () => {
-    const barbers = await fetchPublicBarbers();
+  const { data, error: loadError } = useAsync(async () => {
+    const barbers = await fetchActiveBarbers();
     return { barbers };
   }, "new-client");
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   const { barbers } = data;
 

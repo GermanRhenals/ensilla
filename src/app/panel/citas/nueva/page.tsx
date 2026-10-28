@@ -48,7 +48,7 @@ function NewAppointmentContent() {
   const dateParam = params.get("date");
   const timeParam = params.get("time");
 
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     const [shop, clients, barbers, services] = await Promise.all([
       fetchShop(),
       fetchClients(),
@@ -63,6 +63,7 @@ function NewAppointmentContent() {
     };
   }, "new-appointment");
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
 
   const currentUser = user;

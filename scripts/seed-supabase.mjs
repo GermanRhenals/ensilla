@@ -1,3 +1,13 @@
+/**
+ * Datos de demostración para una barbería del marketplace.
+ *
+ * El script es destructivo solo con la barbería demo: borra y vuelve a crear
+ * sus servicios, clientes, turnos y bloqueos. Las demás barberías no se tocan.
+ *
+ * Requiere `SUPABASE_SERVICE_ROLE_KEY` porque crea usuarios de Auth y escribe
+ * sin RLS. Nunca debe ejecutarse contra una base con datos reales.
+ */
+
 import { createClient } from "@supabase/supabase-js";
 import { addDays, setHours, setMinutes, startOfDay } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
@@ -12,11 +22,19 @@ if (!url || !serviceKey) {
 const supabase = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const TZ = process.env.SHOP_TIMEZONE ?? "America/Bogota";
-const SHOP_CURRENCY = process.env.SHOP_CURRENCY ?? "COP";
-const SHOP_LOCALE = process.env.SHOP_LOCALE ?? "es-CO";
-const SHOP_WHATSAPP_COUNTRY_CODE =
-  process.env.SHOP_WHATSAPP_COUNTRY_CODE ?? "57";
+
+const SHOP_SLUG = process.env.SHOP_SLUG ?? "en-silla";
+const SHOP_NAME = process.env.SHOP_NAME ?? "En-silla Barbershop";
+
+const DEMO_USERS = {
+  admin: { email: "admin@ensilla.app", password: "admin123", name: "Mateo Restrepo" },
+  bruno: { email: "bruno@ensilla.app", password: "barber123", name: "Bruno Salazar" },
+  valentina: {
+    email: "valentina@ensilla.app",
+    password: "barber123",
+    name: "Valentina Ospina",
+  },
+};
 
 function mulberry32(seed) {
   let a = seed;
@@ -32,15 +50,15 @@ function mulberry32(seed) {
 const rng = mulberry32(20261027);
 const pick = (items) => items[Math.floor(rng() * items.length)];
 
-function localInstant(dayOffsetFromToday, minutes) {
-  const nowZoned = toZonedTime(new Date(), TZ);
+function localInstant(timezone, dayOffsetFromToday, minutes) {
+  const nowZoned = toZonedTime(new Date(), timezone);
   const base = startOfDay(addDays(nowZoned, dayOffsetFromToday));
   const withTime = setMinutes(setHours(base, Math.floor(minutes / 60)), minutes % 60);
-  return fromZonedTime(withTime, TZ);
+  return fromZonedTime(withTime, timezone);
 }
 
-function localTime(dayOffsetFromToday, hour, minute = 0) {
-  return localInstant(dayOffsetFromToday, hour * 60 + minute);
+function localTime(timezone, dayOffsetFromToday, hour, minute = 0) {
+  return localInstant(timezone, dayOffsetFromToday, hour * 60 + minute);
 }
 
 async function must(promise, label) {
@@ -49,26 +67,73 @@ async function must(promise, label) {
   return data;
 }
 
-async function ensureUser(email, password, name) {
-  const list = await must(supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }), "listUsers");
-  const existing = list.users.find((u) => (u.email ?? "").toLowerCase() === email);
+async function upsertShop() {
+  // El slug es la clave estable. Reejecutar el seed actualiza la configuración
+  // de la barbería demo sin tocar las demás.
+  return must(
+    supabase
+      .from("shops")
+      .upsert(
+        {
+          slug: SHOP_SLUG,
+          name: SHOP_NAME,
+          tagline: "Cortes con memoria",
+          description:
+            "Una barbería de barrio que se toma el tiempo de conocerte. Agenda simple, atención cuidada y un corte pensado para vos.",
+          address: "Cra. 11 #85-42, Bogotá",
+          phone: "+57 320 555 0100",
+          whatsapp: "573205550100",
+          email: "hola@ensilla.app",
+          instagram: "ensilla.barbershop",
+          currency: process.env.SHOP_CURRENCY ?? "COP",
+          timezone: process.env.SHOP_TIMEZONE ?? "America/Bogota",
+          locale: process.env.SHOP_LOCALE ?? "es-CO",
+          whatsapp_country_code: process.env.SHOP_WHATSAPP_COUNTRY_CODE ?? "57",
+          slot_step_min: 15,
+          buffer_min: 10,
+          lead_time_min: 60,
+          booking_window_days: 21,
+          active: true,
+        },
+        { onConflict: "slug" },
+      )
+      .select("*")
+      .single(),
+    "shops",
+  );
+}
+
+async function ensureUser({ email, password, name }, shopId) {
+  const list = await must(
+    supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    "listUsers",
+  );
+  const existing = list.users.find(
+    (user) => (user.email ?? "").toLowerCase() === email,
+  );
+
+  // El metadato `shop_id` es lo que usa `handle_new_user` para crear el perfil
+  // en la barbería correcta.
+  const metadata = { name, shop_id: shopId };
+
   if (existing) {
     const updated = await must(
       supabase.auth.admin.updateUserById(existing.id, {
         password,
         email_confirm: true,
-        user_metadata: { name },
+        user_metadata: metadata,
       }),
       `updateUser ${email}`,
     );
     return updated.user;
   }
+
   const created = await must(
     supabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { name },
+      user_metadata: metadata,
     }),
     `createUser ${email}`,
   );
@@ -76,66 +141,84 @@ async function ensureUser(email, password, name) {
 }
 
 async function main() {
+  const shop = await upsertShop();
+  const shopId = shop.id;
+  const timezone = shop.timezone;
+  const locale = shop.locale;
+
+  console.log(`Barbería: ${shop.name} (${shop.slug})`);
+
   console.log("Creando usuarios demo...");
-  const admin = await ensureUser("admin@ensilla.app", "admin123", "Mateo Restrepo");
-  const brunoUser = await ensureUser("bruno@ensilla.app", "barber123", "Bruno Salazar");
-  const valentinaUser = await ensureUser("valentina@ensilla.app", "barber123", "Valentina Ospina");
+  const admin = await ensureUser(DEMO_USERS.admin, shopId);
+  const brunoUser = await ensureUser(DEMO_USERS.bruno, shopId);
+  const valentinaUser = await ensureUser(DEMO_USERS.valentina, shopId);
 
-  console.log("Limpiando datos anteriores...");
-  await must(supabase.from("notifications").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "notifications");
-  await must(supabase.from("haircut_ideas").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "haircut_ideas");
-  await must(supabase.from("appointments").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "appointments");
-  await must(supabase.from("time_off").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "time_off");
-  await must(supabase.from("clients").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "clients");
-  await must(supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000"), "services");
-  await must(supabase.from("business_hours").delete().neq("weekday", -1), "business_hours");
-
-  console.log("Configuración de la barbería...");
-  await must(
-    supabase.from("shop_setting").upsert({
-      id: 1,
-      name: "En-silla Barbershop",
-      tagline: "Cortes con memoria",
-      description:
-        "Una barbería de barrio que se toma el tiempo de conocerte. Agenda simple, atención cuidada y un corte pensado para vos.",
-      address: "Cra. 11 #85-42, Bogotá",
-      phone: "+57 320 555 0100",
-      whatsapp: "573205550100",
-      email: "hola@ensilla.app",
-      instagram: "ensilla.barbershop",
-      currency: SHOP_CURRENCY,
-      timezone: TZ,
-      locale: SHOP_LOCALE,
-      whatsapp_country_code: SHOP_WHATSAPP_COUNTRY_CODE,
-      slot_step_min: 15,
-      buffer_min: 10,
-      lead_time_min: 60,
-      booking_window_days: 21,
-    }),
-    "shop_setting",
-  );
+  console.log("Limpiando datos anteriores de esta barbería...");
+  await must(supabase.from("notifications").delete().eq("shop_id", shopId), "notifications");
+  await must(supabase.from("haircut_ideas").delete().eq("shop_id", shopId), "haircut_ideas");
+  await must(supabase.from("appointments").delete().eq("shop_id", shopId), "appointments");
+  await must(supabase.from("time_off").delete().eq("shop_id", shopId), "time_off");
+  await must(supabase.from("clients").delete().eq("shop_id", shopId), "clients");
+  await must(supabase.from("services").delete().eq("shop_id", shopId), "services");
 
   await must(
-    supabase.from("business_hours").insert([
-      { weekday: 0, open_minute: 0, close_minute: 0, active: false },
-      { weekday: 1, open_minute: 0, close_minute: 0, active: false },
-      { weekday: 2, open_minute: 600, close_minute: 1200, active: true },
-      { weekday: 3, open_minute: 600, close_minute: 1200, active: true },
-      { weekday: 4, open_minute: 600, close_minute: 1200, active: true },
-      { weekday: 5, open_minute: 600, close_minute: 1200, active: true },
-      { weekday: 6, open_minute: 540, close_minute: 1080, active: true },
-    ]),
+    supabase.from("business_hours").upsert(
+      [
+        { shop_id: shopId, weekday: 0, open_minute: 0, close_minute: 0, active: false },
+        { shop_id: shopId, weekday: 1, open_minute: 0, close_minute: 0, active: false },
+        { shop_id: shopId, weekday: 2, open_minute: 600, close_minute: 1200, active: true },
+        { shop_id: shopId, weekday: 3, open_minute: 600, close_minute: 1200, active: true },
+        { shop_id: shopId, weekday: 4, open_minute: 600, close_minute: 1200, active: true },
+        { shop_id: shopId, weekday: 5, open_minute: 600, close_minute: 1200, active: true },
+        { shop_id: shopId, weekday: 6, open_minute: 540, close_minute: 1080, active: true },
+      ],
+      { onConflict: "shop_id,weekday" },
+    ),
     "business_hours",
   );
 
   const profiles = [
-    { id: admin.id, name: "Mateo Restrepo", role: "ADMIN", phone: "+57 320 555 0101", bio: "Fundador de En-silla. Especialista en clásicos y fades limpios.", color: "#c2703d", active: true },
-    { id: brunoUser.id, name: "Bruno Salazar", role: "BARBER", phone: "+57 320 555 0102", bio: "Texturas, rizos y degradados con personalidad.", color: "#3f7d6c", active: true },
-    { id: valentinaUser.id, name: "Valentina Ospina", role: "BARBER", phone: "+57 320 555 0103", bio: "Cortes con movimiento, color y asesoramiento de imagen.", color: "#7c5cbf", active: true },
+    {
+      id: admin.id,
+      shop_id: shopId,
+      email: DEMO_USERS.admin.email,
+      name: DEMO_USERS.admin.name,
+      role: "ADMIN",
+      phone: "+57 320 555 0101",
+      bio: "Fundador de En-silla. Especialista en clásicos y fades limpios.",
+      color: "#c2703d",
+      active: true,
+    },
+    {
+      id: brunoUser.id,
+      shop_id: shopId,
+      email: DEMO_USERS.bruno.email,
+      name: DEMO_USERS.bruno.name,
+      role: "BARBER",
+      phone: "+57 320 555 0102",
+      bio: "Texturas, rizos y degradados con personalidad.",
+      color: "#3f7d6c",
+      active: true,
+    },
+    {
+      id: valentinaUser.id,
+      shop_id: shopId,
+      email: DEMO_USERS.valentina.email,
+      name: DEMO_USERS.valentina.name,
+      role: "BARBER",
+      phone: "+57 320 555 0103",
+      bio: "Cortes con movimiento, color y asesoramiento de imagen.",
+      color: "#7c5cbf",
+      active: true,
+    },
   ];
-  for (const profile of profiles) {
-    await must(supabase.from("profiles").update(profile).eq("id", profile.id), `profile ${profile.name}`);
-  }
+
+  // `upsert` cubre el caso de un usuario de Auth creado antes del seed: el
+  // trigger ya dejó un perfil inactivo y aquí se completa y activa.
+  await must(
+    supabase.from("profiles").upsert(profiles, { onConflict: "id" }),
+    "profiles",
+  );
 
   const serviceRows = [
     { name: "Corte clásico", description: "Tijera y máquina, lavado y peinado final.", duration_min: 45, price_cents: 3500000, sort_order: 1 },
@@ -145,9 +228,17 @@ async function main() {
     { name: "Corte niño", description: "Corte cómodo y rápido, con paciencia de sobra.", duration_min: 30, price_cents: 3000000, sort_order: 5 },
     { name: "Afeitado a navaja", description: "Ritual completo con toalla caliente y bálsamo.", duration_min: 40, price_cents: 3000000, sort_order: 6 },
   ];
+
   const services = [];
   for (const row of serviceRows) {
-    const data = await must(supabase.from("services").insert(row).select("*").single(), `service ${row.name}`);
+    const data = await must(
+      supabase
+        .from("services")
+        .insert({ ...row, shop_id: shopId })
+        .select("*")
+        .single(),
+      `service ${row.name}`,
+    );
     services.push(data);
   }
 
@@ -334,6 +425,7 @@ async function main() {
       supabase
         .from("clients")
         .insert({
+          shop_id: shopId,
           name: clientData.name,
           phone: clientData.phone.replace(/\D/g, ""),
           email: clientData.email,
@@ -343,18 +435,20 @@ async function main() {
           allergies: clientData.allergies,
           preferred_barber_id: clientData.preferredBarberId,
           notes: clientData.notes,
-          created_at: localInstant(-Math.floor(rng() * 180), 600).toISOString(),
+          created_at: localInstant(timezone, -Math.floor(rng() * 180), 600).toISOString(),
         })
         .select("*")
         .single(),
       `client ${clientData.name}`,
     );
     clients.push(row);
+
     if (ideas.length > 0) {
       await must(
         supabase.from("haircut_ideas").insert(
           ideas.map((idea) => ({
             ...idea,
+            shop_id: shopId,
             client_id: row.id,
             created_by_id: clientData.preferredBarberId ?? admin.id,
           })),
@@ -367,9 +461,10 @@ async function main() {
 
   await must(
     supabase.from("time_off").insert({
+      shop_id: shopId,
       user_id: valentinaUser.id,
-      start_at: localTime(4, 10, 0).toISOString(),
-      end_at: localTime(4, 14, 0).toISOString(),
+      start_at: localTime(timezone, 4, 10, 0).toISOString(),
+      end_at: localTime(timezone, 4, 14, 0).toISOString(),
       reason: "Curso de coloración",
     }),
     "time_off",
@@ -377,24 +472,26 @@ async function main() {
 
   const barbers = profiles;
   const statusPool = ["COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED", "CANCELLED", "NO_SHOW"];
+  const hoursByWeekday = [
+    { weekday: 2, openMinute: 600, closeMinute: 1200, active: true },
+    { weekday: 3, openMinute: 600, closeMinute: 1200, active: true },
+    { weekday: 4, openMinute: 600, closeMinute: 1200, active: true },
+    { weekday: 5, openMinute: 600, closeMinute: 1200, active: true },
+    { weekday: 6, openMinute: 540, closeMinute: 1080, active: true },
+  ];
+
   const appointments = [];
   const now = new Date();
 
   for (let dayOffset = -56; dayOffset <= 10; dayOffset++) {
-    const dayStart = localInstant(dayOffset, 0);
-    const weekday = Number(formatInTimeZone(dayStart, TZ, "i")) % 7;
-    const hours = [
-      { weekday: 2, openMinute: 600, closeMinute: 1200, active: true },
-      { weekday: 3, openMinute: 600, closeMinute: 1200, active: true },
-      { weekday: 4, openMinute: 600, closeMinute: 1200, active: true },
-      { weekday: 5, openMinute: 600, closeMinute: 1200, active: true },
-      { weekday: 6, openMinute: 540, closeMinute: 1080, active: true },
-    ].find((h) => h.weekday === weekday);
+    const dayStart = localInstant(timezone, dayOffset, 0);
+    const weekday = Number(formatInTimeZone(dayStart, timezone, "i")) % 7;
+    const hours = hoursByWeekday.find((row) => row.weekday === weekday);
     if (!hours) continue;
 
     for (const barber of barbers) {
       let cursor = hours.openMinute;
-      const preferred = clients.filter((c) => c.preferred_barber_id === barber.id);
+      const preferred = clients.filter((client) => client.preferred_barber_id === barber.id);
       while (cursor < hours.closeMinute - 30) {
         if (rng() < 0.22) {
           cursor += 30;
@@ -404,7 +501,7 @@ async function main() {
         if (cursor + service.duration_min > hours.closeMinute) break;
 
         const client = rng() < 0.55 ? pick(preferred.length > 0 ? preferred : clients) : pick(clients);
-        const start = localInstant(dayOffset, cursor);
+        const start = localInstant(timezone, dayOffset, cursor);
         const end = new Date(start.getTime() + service.duration_min * 60_000);
         let status;
         if (end < now) {
@@ -416,6 +513,7 @@ async function main() {
           if (rng() < 0.08) status = "CANCELLED";
         }
         appointments.push({
+          shop_id: shopId,
           client_id: client.id,
           barber_id: barber.id,
           service_id: service.id,
@@ -441,12 +539,19 @@ async function main() {
 
   console.log(`Creando ${appointments.length} turnos...`);
   for (let i = 0; i < appointments.length; i += 200) {
-    await must(supabase.from("appointments").insert(appointments.slice(i, i + 200)), `appointments ${i}`);
+    await must(
+      supabase.from("appointments").insert(appointments.slice(i, i + 200)),
+      `appointments ${i}`,
+    );
   }
 
-  const upcoming = appointments.filter((a) => new Date(a.start_at) > now && a.status === "CONFIRMED").slice(0, 6);
+  const upcoming = appointments
+    .filter((appointment) => new Date(appointment.start_at) > now && appointment.status === "CONFIRMED")
+    .slice(0, 6);
+
   const notifications = [
     {
+      shop_id: shopId,
       user_id: admin.id,
       title: "Bienvenido a En-silla",
       body: "Este es tu panel de operación diaria. Desde acá podés ver la agenda, la caja del día y las preferencias de cada cliente.",
@@ -454,16 +559,18 @@ async function main() {
       read_at: null,
     },
     ...barbers.map((barber) => ({
+      shop_id: shopId,
       user_id: barber.id,
       title: "Agenda del día lista",
       body: "Revisá tus turnos de hoy y los clientes que vuelven. Sus preferencias están guardadas en cada ficha.",
       href: "/panel/agenda",
       read_at: null,
     })),
-    ...upcoming.map((a) => ({
-      user_id: a.barber_id,
+    ...upcoming.map((appointment) => ({
+      shop_id: shopId,
+      user_id: appointment.barber_id,
       title: "Nuevo turno confirmado",
-      body: `${clients.find((c) => c.id === a.client_id)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat(SHOP_LOCALE, { dateStyle: "short", timeStyle: "short", timeZone: TZ }).format(new Date(a.start_at))}.`,
+      body: `${clients.find((client) => client.id === appointment.client_id)?.name ?? "Cliente"} reservó para el ${new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short", timeZone: timezone }).format(new Date(appointment.start_at))}.`,
       href: "/panel/agenda",
       read_at: rng() < 0.4 ? new Date().toISOString() : null,
     })),
@@ -471,6 +578,7 @@ async function main() {
   await must(supabase.from("notifications").insert(notifications), "notifications");
 
   console.log("Listo.");
+  console.log(`Barbería pública: /reservar?barberia=${shop.slug}`);
   console.log("Admin:   admin@ensilla.app / admin123");
   console.log("Barberos: bruno@ensilla.app / barber123");
   console.log("          valentina@ensilla.app / barber123");

@@ -4,6 +4,7 @@ import type { BookingResult } from "./types";
 export type { BookingResult };
 
 export type PublicBookingInput = {
+  shopId: string;
   serviceId: string;
   barberId: string;
   start: string;
@@ -28,18 +29,11 @@ export type StaffBookingInput = {
   source?: string;
 };
 
-export function normalizePhone(input: string) {
-  let digits = input.replace(/\D/g, "");
-  if (digits.startsWith("54")) digits = digits.slice(2);
-  if (digits.startsWith("9") && digits.length === 11) digits = digits.slice(1);
-  if (digits.startsWith("0")) digits = digits.slice(1);
-  return digits;
-}
-
 export async function createPublicBooking(
   input: PublicBookingInput,
 ): Promise<BookingResult> {
   const { data, error } = await supabase.rpc("create_public_booking", {
+    p_shop_id: input.shopId,
     p_service_id: input.serviceId,
     p_barber_id: input.barberId,
     p_start: input.start,

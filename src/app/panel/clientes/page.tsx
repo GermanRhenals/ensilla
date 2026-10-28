@@ -13,7 +13,7 @@ import {
   fetchShop,
 } from "@/lib/data";
 import { formatDate } from "@/lib/datetime";
-import { formatMoney, initials } from "@/lib/format";
+import { formatMoney, formatPhone, initials } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
 
 export default function ClientsPage() {
@@ -36,7 +36,7 @@ function ClientsContent() {
   const { profile } = useAuth();
   const query = (params.get("q") ?? "").trim();
 
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     const [shop, clients, totals, workload] = await Promise.all([
       fetchShop(),
       fetchClients(query),
@@ -53,6 +53,7 @@ function ClientsContent() {
     };
   }, `clients-${query}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   const { shop, clients, totals } = data;
   const totalMap = totals;
@@ -183,7 +184,10 @@ function ClientsContent() {
                               {client.name}
                             </Link>
                             <p className="text-xs text-stone-400">
-                              {client.phone}
+                              {formatPhone(
+                                client.phone,
+                                shop.whatsappCountryCode,
+                              )}
                             </p>
                           </div>
                         </div>

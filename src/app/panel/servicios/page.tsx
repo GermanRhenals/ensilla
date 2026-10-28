@@ -19,7 +19,7 @@ export default function ServicesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     const [shop, services] = await Promise.all([
       fetchShop(),
       fetchServices(),
@@ -27,6 +27,7 @@ export default function ServicesPage() {
     return { shop, services };
   }, "services");
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (profile.role !== "ADMIN") {
     return <Flash error="Solo un administrador puede ver esta sección." />;

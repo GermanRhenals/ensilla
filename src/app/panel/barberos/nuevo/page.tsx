@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, KeyRound, Loader2, UserPlus } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
-import { normalizePhone } from "@/lib/booking";
+import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
+import { normalizePhone } from "@/lib/phone";
 import { createBarber } from "@/lib/data";
 
 export default function NewBarberPage() {
@@ -148,9 +149,9 @@ export default function NewBarberPage() {
               name="password"
               type="password"
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               className="input"
-              placeholder="Mínimo 6 caracteres"
+              placeholder={`Mínimo ${MIN_PASSWORD_LENGTH} caracteres`}
               autoComplete="new-password"
             />
           </div>

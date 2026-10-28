@@ -19,7 +19,7 @@ export default function NotificationsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!profile) return null;
     const [shop, notifications] = await Promise.all([
       fetchShop(),
@@ -28,6 +28,7 @@ export default function NotificationsPage() {
     return { shop, notifications };
   }, `notifications-${profile?.id ?? ""}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   const currentProfile = profile;
   const { shop, notifications } = data;

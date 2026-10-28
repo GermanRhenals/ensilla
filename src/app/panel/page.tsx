@@ -26,10 +26,11 @@ import { formatMoney, initials } from "@/lib/format";
 import { suggestIdeas } from "@/lib/ideas";
 import { getOverview, getTodaySummary } from "@/lib/stats";
 import { useAsync } from "@/lib/use-async";
+import { Flash } from "@/components/ui/flash";
 
 export default function DashboardPage() {
   const { profile: user } = useAuth();
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     if (!user) return null;
     const shop = await fetchShop();
     const scopedBarberId = user.role === "ADMIN" ? undefined : user.id;
@@ -40,6 +41,7 @@ export default function DashboardPage() {
     return { shop, today, overview };
   }, `dashboard-${user?.id ?? ""}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
   const { shop, today, overview } = data;
 

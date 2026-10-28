@@ -17,7 +17,7 @@ export default function BarbersPage() {
   const { profile: admin } = useAuth();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     const [barbers, workload] = await Promise.all([
       fetchBarbers(),
       fetchBarberWorkload(),
@@ -37,6 +37,7 @@ export default function BarbersPage() {
     };
   }, "barbers");
 
+  if (loadError) return <Flash error={loadError} />;
   if (!admin || !data) return null;
   if (admin.role !== "ADMIN") {
     return <Flash error="Solo un administrador puede ver esta sección." />;

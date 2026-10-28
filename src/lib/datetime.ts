@@ -100,6 +100,21 @@ export function formatTimeInput(date: Date, timezone = DEFAULT_TIMEZONE) {
   return formatInTimeZone(date, timezone, "HH:mm");
 }
 
+/**
+ * Verifica que una cadena sea una zona horaria IANA válida.
+ * Se usa para impedir que un ajuste mal escrito rompa toda la agenda: las
+ * funciones de `date-fns-tz` lanzan si reciben una zona desconocida.
+ */
+export function isValidTimeZone(timezone: string) {
+  if (!timezone) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type DayOption = {
   key: string;
   weekdayShort: string;

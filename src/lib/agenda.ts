@@ -66,10 +66,8 @@ export async function getAgenda(
   const closeMinute = dayHours?.active ? dayHours.closeMinute : 0;
 
   const allBarbers = await fetchBarbers();
-  const barbers = allBarbers.filter(
-    (barber) =>
-      barber.active &&
-      (!options?.barberId || barber.id === options.barberId),
+  const candidates = allBarbers.filter(
+    (barber) => !options?.barberId || barber.id === options.barberId,
   );
 
   const dayStart = parseDateKey(dayKey, shop.timezone);
@@ -77,7 +75,16 @@ export async function getAgenda(
   const appointments = await fetchAppointmentsBetween(
     dayStart.toISOString(),
     dayEnd.toISOString(),
-    barbers.map((barber) => barber.id),
+    candidates.map((barber) => barber.id),
+  );
+
+  // Un barbero desactivado sigue apareciendo si tiene turnos ese día: la
+  // agenda es un registro histórico y no debe ocultar trabajo ya reservado.
+  const withAppointments = new Set(
+    appointments.map((appointment) => appointment.barberId),
+  );
+  const barbers = candidates.filter(
+    (barber) => barber.active || withAppointments.has(barber.id),
   );
 
   const grouped = new Map<string, AgendaAppointment[]>();

@@ -6,6 +6,16 @@ export const DEFAULT_LOCALE = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? "es-CO";
 export const DEFAULT_WHATSAPP_COUNTRY_CODE =
   process.env.NEXT_PUBLIC_DEFAULT_WHATSAPP_COUNTRY_CODE ?? "57";
 
+/**
+ * Longitud mínima de contraseña del equipo.
+ *
+ * IMPORTANTE
+ * Debe coincidir con `minimum_password_length` de Supabase Auth y con
+ * `MIN_PASSWORD_LENGTH` de la Edge Function `admin-users`. Si cambia en un
+ * lugar, cambiar en los tres.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+
 export const SPANISH_LOCALES = [
   { value: "es", label: "Español (genérico)" },
   { value: "es-AR", label: "Argentina — ARS" },
@@ -30,9 +40,6 @@ export const SPANISH_LOCALES = [
   { value: "es-UY", label: "Uruguay — UYU" },
   { value: "es-VE", label: "Venezuela — VES" },
 ] as const;
-
-export const SESSION_COOKIE = "ensilla_session";
-export const SESSION_DURATION_DAYS = 7;
 
 export const APPOINTMENT_STATUS = {
   PENDING: {
@@ -70,8 +77,6 @@ export const APPOINTMENT_STATUS_LIST = Object.keys(
 
 export const BLOCKING_STATUSES = ["PENDING", "CONFIRMED", "COMPLETED"];
 
-export const STAFF_ROLES = ["ADMIN", "BARBER"];
-
 export const WEEKDAY_LABELS = [
   "Domingo",
   "Lunes",
@@ -81,21 +86,6 @@ export const WEEKDAY_LABELS = [
   "Viernes",
   "Sábado",
 ];
-
-export const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-
-export const DEFAULT_SHOP = {
-  name: "En-silla Barbershop",
-  tagline: "Cortes con memoria",
-  currency: DEFAULT_CURRENCY,
-  timezone: DEFAULT_TIMEZONE,
-  locale: DEFAULT_LOCALE,
-  whatsappCountryCode: DEFAULT_WHATSAPP_COUNTRY_CODE,
-  slotStepMin: 15,
-  bufferMin: 10,
-  leadTimeMin: 60,
-  bookingWindowDays: 21,
-};
 
 export function statusInfo(status: string) {
   return (
