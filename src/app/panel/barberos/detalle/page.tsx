@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, ShieldCheck, UserCog } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
+import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
 import { normalizePhone } from "@/lib/phone";
 import { fetchBarbers, updateBarber } from "@/lib/data";
 import { initials } from "@/lib/format";
@@ -197,9 +198,9 @@ function BarberDetailContent() {
               id="password"
               name="password"
               type="password"
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               className="input"
-              placeholder="Dejar vacío para no cambiar"
+              placeholder={`Dejar vacío para no cambiar. Mínimo ${MIN_PASSWORD_LENGTH} caracteres.`}
               autoComplete="new-password"
             />
           </div>

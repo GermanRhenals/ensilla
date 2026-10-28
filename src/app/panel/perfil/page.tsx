@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
+import { MIN_PASSWORD_LENGTH } from "@/lib/constants";
 import { normalizePhone } from "@/lib/phone";
 import {
   fetchBarberCompletedCount,
@@ -57,8 +58,10 @@ export default function ProfilePage() {
         color: String(formData.get("color") || "#3f7d6c"),
       });
       if (password) {
-        if (password.length < 6) {
-          throw new Error("La contraseña debe tener al menos 6 caracteres.");
+        if (password.length < MIN_PASSWORD_LENGTH) {
+          throw new Error(
+            `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+          );
         }
         const { error: passwordError } = await supabase.auth.updateUser({
           password,
@@ -194,13 +197,14 @@ export default function ProfilePage() {
                 id="password"
                 name="password"
                 type="password"
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 className="input"
                 placeholder="Dejar vacío para mantener la actual"
                 autoComplete="new-password"
               />
               <p className="mt-1 text-[11px] text-stone-400">
-                Mínimo 6 caracteres. La sesión actual sigue activa.
+                Mínimo {MIN_PASSWORD_LENGTH} caracteres. La sesión actual sigue
+                activa.
               </p>
             </div>
           </div>

@@ -6,6 +6,16 @@ export const DEFAULT_LOCALE = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? "es-CO";
 export const DEFAULT_WHATSAPP_COUNTRY_CODE =
   process.env.NEXT_PUBLIC_DEFAULT_WHATSAPP_COUNTRY_CODE ?? "57";
 
+/**
+ * Longitud mínima de contraseña del equipo.
+ *
+ * IMPORTANTE
+ * Debe coincidir con `minimum_password_length` de Supabase Auth y con
+ * `MIN_PASSWORD_LENGTH` de la Edge Function `admin-users`. Si cambia en un
+ * lugar, cambiar en los tres.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+
 export const SPANISH_LOCALES = [
   { value: "es", label: "Español (genérico)" },
   { value: "es-AR", label: "Argentina — ARS" },
