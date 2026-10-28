@@ -100,7 +100,9 @@ producción**.
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 3. En **Settings > Pages**, elegir **Source: GitHub Actions**.
-4. Ejecutar el workflow **Deploy to GitHub Pages** (`workflow_dispatch`).
+4. Hacer el primer push a `main`: el workflow **Deploy to GitHub Pages** se
+   dispara solo. También se puede ejecutar a mano (`workflow_dispatch`) para
+   republicar sin cambios.
 5. Verificar la URL publicada y que `NEXT_PUBLIC_BASE_PATH` coincida con el
    nombre del repositorio (el workflow lo calcula solo).
 
@@ -114,18 +116,19 @@ propio, el `basePath` debe quedar vacío: ajustar el workflow en ese caso.
 ```text
 push a main
   └─ CI: typecheck + lint + build
-       └─ si pasa, una persona ejecuta Deploy to GitHub Pages
-            └─ build con secretos reales
-                 └─ publica out/ en GitHub Pages
+  └─ Deploy to GitHub Pages (en paralelo)
+       └─ build con secretos reales
+            └─ publica out/ en GitHub Pages
 ```
 
-El despliegue es manual a propósito: permite revisar qué se publica. El CI no
-despliega nada.
+El despliegue se dispara con cada push a `main`. Por eso una migración se aplica
+antes de mergear el código que la usa: el sitio se publica apenas entra el
+commit. Para republicar sin cambios, ejecutar **Deploy to GitHub Pages** a mano.
 
 ### Rollback del frontend
 
-1. Revertir el commit problemático en `main`.
-2. Ejecutar de nuevo **Deploy to GitHub Pages**.
+1. Revertir el commit problemático en `main`: el workflow republica solo.
+2. Si no se republicó, ejecutar **Deploy to GitHub Pages** a mano.
 3. Si el problema es de datos, no alcanza con el rollback del frontend: seguir
    el procedimiento de base de datos.
 
