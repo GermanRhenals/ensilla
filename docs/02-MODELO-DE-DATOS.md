@@ -209,7 +209,7 @@ filtrada por `shop_id`.
 
 | Función | Quién | Qué garantiza |
 | --- | --- | --- |
-| `search_shops(text)` | `anon`, `authenticated` | Busca barberías activas por nombre o slug; mínimo 2 caracteres y tope de 12 |
+| `search_shops(text)` | `anon`, `authenticated` | Busca barberías activas por nombre o slug ignorando acentos, signos y espacios ("ensilla" encuentra "En-silla"); mínimo 2 caracteres y tope de 12 |
 | `get_public_shop(text)` | `anon`, `authenticated` | Configuración pública de una barbería activa por slug |
 | `current_shop()` | `authenticated` | Configuración de la barbería del perfil autenticado |
 | `current_shop_id()` | `anon`, `authenticated` | `shop_id` del perfil activo en una barbería activa; base de las políticas RLS |

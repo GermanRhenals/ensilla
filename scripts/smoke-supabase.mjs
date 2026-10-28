@@ -126,6 +126,20 @@ try {
   );
   console.log("✓ search_shops");
 
+  // La marca se escribe con guion, espacio o todo junto. La búsqueda no debe
+  // depender de esos signos.
+  const compactName = shop.name.replace(/[^a-zA-Z0-9]+/g, "");
+  const { data: compactResults, error: compactError } = await anon.rpc(
+    "search_shops",
+    { p_query: compactName },
+  );
+  if (compactError) throw compactError;
+  assert(
+    (compactResults ?? []).some((row) => row.id === shop.id),
+    "La búsqueda pública no ignora guiones ni espacios.",
+  );
+  console.log("✓ search_shops sin signos");
+
   const { data: publicShop, error: publicShopError } = await anon.rpc(
     "get_public_shop",
     { p_slug: shop.slug },
