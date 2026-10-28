@@ -10,29 +10,48 @@ llamar a la API de Supabase con la clave pública. Por eso:
 2. Los **privilegios por columna** deciden qué campos puede escribir.
 3. Las **RPC** encapsulan las operaciones que no deben hacerse con un `insert`
    directo.
-4. La **Edge Function** es la única vía para cambios de rol y credenciales.
+4. Las **Edge Functions** son la única vía para cambios de rol, credenciales y
+   envío de correo.
 
 Si una regla solo existe en el frontend, no es una regla de seguridad: es una
 sugerencia de interfaz.
+
+## Aislamiento por barbería
+
+- `shops` es la raíz del tenant y `profiles.shop_id` define a qué barbería
+  pertenece cada usuario.
+- Todas las tablas operativas tienen `shop_id` y políticas que lo comparan con
+  `current_shop_id()`.
+- `current_shop_id()` es `security definer` y solo devuelve el `shop_id` de un
+  perfil activo. Un usuario desactivado no obtiene barbería y, por lo tanto, no
+  pasa ninguna política.
+- `is_active_shop(uuid)` permite que el sitio público lea solo barberías
+  publicadas sin exponer la tabla completa.
+- Las RPC de negocio validan que servicio, barbero, cliente y turno pertenezcan
+  a la misma barbería. No alcanza con que el navegador envíe un `shop_id`.
 
 ## Modelo de amenazas
 
 | Amenaza | Mitigación |
 | --- | --- |
 | Visitante intenta leer clientes o turnos | RLS: `anon` no tiene políticas sobre `clients` ni `appointments` |
-| Usuario autenticado se asciende a administrador | `update` de `profiles` limitado a `name, phone, bio, color` |
-| Barbero intenta ver turnos de otro barbero | Política de `select` con `is_staff()` y alcance por `barber_id` en consultas; el panel filtra por usuario |
-| Cliente borra su historial al borrar un cliente | `on delete restrict` en `appointments` y `haircut_ideas`; borrado solo `ADMIN` |
+| Usuario de una barbería intenta leer otra | RLS compara `shop_id` con `current_shop_id()` en todas las tablas del tenant |
+| Usuario autenticado se asciende a administrador | `update` de `profiles` limitado a `name, phone, bio, color`; `role`, `active` y `shop_id` fuera del alcance |
+| Barbero intenta ver turnos de otro barbero | Política de `appointments` y consultas del panel filtran por usuario; la escritura se limita al propio turno salvo `ADMIN` |
+| Cliente borra su historial al borrar un cliente | `on delete restrict` en `appointments` y `haircut_ideas`; borrado solo `ADMIN` y de su barbería |
 | Se insertan turnos falsos o con precios manipulados | `insert` revocado; altas solo por RPC con precio tomado del catálogo |
 | Se modifican horarios o precios de un turno | `update` limitado a `status`, `notes`, `reminder_sent_at` |
-| Spam de reservas públicas | Máximo 3 reservas públicas por teléfono por hora |
+| Se crea una barbería desde el navegador | Sin política de `insert` en `shops`; el alta usa el script con clave de servicio |
+| Se consulta el directorio completo de barberías | `search_shops` exige 2 caracteres, devuelve 12 como máximo y solo barberías activas |
+| Se inyecta SQL o filtros mal formados | Consultas parametrizadas de PostgREST; la búsqueda quita `%` y `_` antes de armar el patrón |
+| Spam de reservas públicas | Máximo 3 reservas públicas por teléfono y barbería por hora |
 | Se sobrescribe el nombre de un cliente existente | El `upsert` público conserva el nombre guardado |
-| Se inyecta SQL o filtros mal formados | Consultas parametrizadas de PostgREST; la búsqueda escapa caracteres especiales |
-| Se leen datos internos desde la confirmación pública | RPC devuelve solo nombre, teléfono del cliente, servicio, barbero y precio |
-| Cuenta inactiva sigue entrando | `AuthProvider` cierra la sesión si el perfil está inactivo; RLS usa `current_app_role()` que exige `active = true` |
+| Se leen datos internos desde la confirmación | RPC devuelve nombre y teléfono del cliente, servicio, barbero, barbería y `has_email`; nunca el correo |
+| Se usa el recordatorio como spam masivo | UUID como credencial, solo turnos pendientes o confirmados, enfriamiento de 2 minutos y destinatario único |
+| Cuenta inactiva sigue entrando | `AuthProvider` cierra la sesión; RLS exige perfil activo vía `current_shop_id()` |
 | Autoregistro crea un empleado | `handle_new_user` crea el perfil con `active = false`; además el registro debe estar cerrado en Supabase |
-| Escalada por la Edge Function | Verifica JWT, perfil `ADMIN` activo, última cuenta admin y valida todos los campos |
-| Fuga de la clave de servicio | Solo vive en `.env` local y en el entorno de Supabase; nunca en `NEXT_PUBLIC_*` |
+| Escalada por la Edge Function | Verifica JWT, perfil `ADMIN` activo, mismo `shop_id`, última cuenta admin de la barbería y valida todos los campos |
+| Fuga de la clave de servicio o de Resend | Solo viven en el entorno de Supabase y en el `.env` local; nunca en `NEXT_PUBLIC_*` |
 
 ## Matriz de acceso
 
@@ -40,16 +59,16 @@ sugerencia de interfaz.
 
 | Tabla | `anon` | `authenticated` | Notas |
 | --- | --- | --- | --- |
-| `shop_setting` | lectura | lectura | Escritura solo `ADMIN` |
-| `business_hours` | lectura | lectura | Escritura solo `ADMIN` |
-| `services` | lectura de activos | lectura total | Escritura solo `ADMIN` |
-| `profiles` | sin acceso | lectura si es personal | Edición propia limitada; `role`/`active` por Edge Function |
-| `clients` | sin acceso | lectura/alta/edición si es personal | Borrado solo `ADMIN` |
-| `appointments` | sin acceso | lectura y edición acotada | Alta por RPC; sin `insert` ni `delete` directo |
-| `haircut_ideas` | sin acceso | lectura/escritura si es personal | FK restrict a cliente |
-| `time_off` | sin acceso | lectura si es personal | Escritura propia o `ADMIN` |
+| `shops` | lectura de activas | lectura de activas o la propia | Escritura solo `ADMIN` de la propia barbería; el slug y `active` no se editan desde el panel |
+| `business_hours` | lectura de barberías activas | lectura del personal propio | Escritura solo `ADMIN` |
+| `services` | lectura de activos | lectura del personal propio | Escritura solo `ADMIN` |
+| `profiles` | sin acceso | lectura si es personal de la barbería | Edición propia limitada; `role`, `active` y `shop_id` por Edge Function |
+| `clients` | sin acceso | lectura/alta/edición del personal propio | Borrado solo `ADMIN` |
+| `appointments` | sin acceso | lectura del personal propio | Alta por RPC; sin `insert` ni `delete` directo |
+| `haircut_ideas` | sin acceso | lectura/escritura del personal propio | FK restrict a cliente |
+| `time_off` | sin acceso | lectura del personal propio | Escritura propia o `ADMIN` |
 | `notifications` | sin acceso | lectura y marcado propio | Sin `insert` |
-| `barbers_public` (vista) | lectura | lectura | Solo datos públicos del equipo |
+| `barbers_public` (vista) | lectura | lectura | Solo datos públicos del equipo, filtrado por `shop_id` |
 
 ### Columnas escribibles por el cliente
 
@@ -57,12 +76,12 @@ sugerencia de interfaz.
 | --- | --- |
 | `profiles` | `name`, `phone`, `bio`, `color` |
 | `appointments` | `status`, `notes`, `reminder_sent_at` |
-| `clients` | todas (RLS restringe a personal) |
+| `clients` | todas (RLS restringe al personal de la barbería) |
 | `services` | todas (RLS restringe a `ADMIN`) |
-| `shop_setting` | todas (RLS restringe a `ADMIN`) |
 | `business_hours` | todas (RLS restringe a `ADMIN`) |
-| `haircut_ideas` | todas (RLS restringe a personal) |
+| `haircut_ideas` | todas (RLS restringe al personal) |
 | `notifications` | `read_at` |
+| `shops` | datos de contacto y agenda; no `id`, `slug`, `active`, `created_at` ni `updated_at` |
 
 Cualquier columna fuera de esa lista está protegida por `revoke update` y
 `grant update (columna)`.
@@ -74,8 +93,8 @@ Cualquier columna fuera de esa lista está protegida por `revoke update` y
   renueva automáticamente.
 - El perfil se carga después del login. Si no existe o está inactivo, se cierra
   la sesión.
-- Contraseñas: mínimo 8 caracteres (Edge Function y configuración local de
-  Supabase). No se almacenan ni se registran en el frontend.
+- Contraseñas: mínimo 8 caracteres (Edge Function y script de provisión). No se
+  almacenan ni se registran en el frontend.
 - Roles: `ADMIN` y `BARBER`. El rol vive en `profiles`, no en el token, para que
   un cambio de rol tenga efecto inmediato al recargar el perfil.
 
@@ -95,29 +114,48 @@ Controles:
 
 1. Exige `Authorization: Bearer <jwt>` de un usuario válido.
 2. Consulta con la clave de servicio el perfil de quien invoca y exige
-   `role = ADMIN` y `active = true`. No confía en el cuerpo de la petición.
-3. Valida nombre, correo, color, teléfono, bio y contraseña.
-4. Impide dejar la instalación sin administradores activos.
-5. Si el perfil falla después de crear el usuario de Auth, revierte la cuenta.
-6. Devuelve mensajes en español sin datos internos.
+   `role = ADMIN`, `active = true` y `shop_id` presente. No confía en el cuerpo
+   de la petición.
+3. Acota todas las operaciones al `shop_id` del administrador. No se puede
+   crear, editar ni desactivar una cuenta de otra barbería.
+4. Valida nombre, correo, color, teléfono, bio y contraseña.
+5. Impide dejar una barbería sin administradores activos.
+6. Si el perfil falla después de crear el usuario de Auth, revierte la cuenta.
+7. Devuelve mensajes en español sin datos internos.
 
 La clave `SUPABASE_SERVICE_ROLE_KEY` solo existe en el entorno de Supabase
 (secrets de la función) y en el `.env` de quien ejecuta scripts.
+
+## Búsqueda pública
+
+`search_shops(p_query)`:
+
+- Exige al menos 2 caracteres; con menos devuelve una lista vacía.
+- Elimina `%` y `_` de la entrada para que no funcione como patrón.
+- Solo considera `shops.active = true`.
+- Devuelve `id`, `slug`, `name`, `tagline`, `address` e `instagram`.
+- Ordena primero la coincidencia exacta y limita a 12 resultados.
+
+`get_public_shop(p_slug)` devuelve la configuración pública de una barbería
+activa. No incluye datos de clientes ni de usuarios.
 
 ## Reserva pública endurecida
 
 `create_public_booking`:
 
-- Valida servicio activo, barbero activo, día abierto, horario y anticipación.
+- Exige que la barbería exista y esté activa.
+- Valida servicio activo y barbero activo **de esa barbería**.
+- Valida día abierto, horario y anticipación.
 - Toma el precio del catálogo, nunca del navegador.
 - Bloquea el día con `pg_advisory_xact_lock` para evitar carreras.
-- Rechaza solapamientos y bloqueos (`time_off`).
-- Normaliza el teléfono con el país configurado.
+- Rechaza solapamientos y bloqueos (`time_off`) de la barbería.
+- Normaliza el teléfono con el país configurado por la barbería.
 - Limita longitudes: nombre 80, correo 160, tipo de cabello 80, estilo 80,
   notas 500.
 - No sobrescribe el nombre de un cliente existente; solo completa campos vacíos.
-- Limita a 3 reservas públicas por teléfono en la última hora.
-- Crea la notificación interna.
+- Crea o reutiliza el cliente dentro de `(shop_id, phone)`.
+- Limita a 3 reservas públicas por teléfono y barbería en la última hora.
+- Crea la notificación interna del barbero asignado.
 
 ## Confirmación pública
 
@@ -130,15 +168,40 @@ La clave `SUPABASE_SERVICE_ROLE_KEY` solo existe en el entorno de Supabase
   "end_at": "...",
   "price_cents": 4500000,
   "status": "CONFIRMED",
-  "client": { "name": "...", "phone": "..." },
+  "client": { "name": "...", "phone": "...", "has_email": true },
   "service": { "name": "...", "duration_min": 45 },
-  "barber": { "name": "..." }
+  "barber": { "name": "..." },
+  "shop": { "id": "...", "slug": "...", "name": "...", "timezone": "...", "currency": "..." }
 }
 ```
 
-El UUID es la credencial. No incluye correo del cliente, notas internas,
-teléfono del barbero ni el historial. No permitir listados ni modificaciones
-desde este endpoint.
+El UUID es la credencial. No incluye correo del cliente, notas internas ni
+teléfono del barbero. No permite listados ni modificaciones directas.
+
+`set_booking_email(uuid, correo)` permite agregar el correo después de
+confirmar. Solo funciona en reservas `PENDING` o `CONFIRMED`, valida el formato
+y únicamente completa un correo faltante: nunca reemplaza uno existente.
+Cualquier persona con el UUID puede fijarlo; es el mismo modelo de confianza que
+la confirmación y por eso el enlace no debe registrarse en analítica ni
+compartirse.
+
+## Recordatorio por correo
+
+`send-reminder`:
+
+- Acepta solo `POST` con `{ "appointmentId": "<uuid>" }`.
+- Valida el formato del UUID y busca la reserva con la clave de servicio.
+- Solo envía para turnos `PENDING` o `CONFIRMED`.
+- Exige que el cliente tenga correo; si no, responde con un mensaje que invita a
+  agregarlo.
+- Aplica un enfriamiento de 2 minutos usando `reminder_sent_at`.
+- Lee el correo del cliente, pero nunca lo devuelve al navegador.
+- Si Resend falla, devuelve un mensaje genérico y no registra direcciones.
+- Marca `reminder_sent_at` solo después de que Resend acepta el envío.
+
+Variables de la función: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y, opcional,
+`REMINDER_FROM_NAME`. El remitente debe pertenecer a un dominio verificado en
+Resend.
 
 ## Gestión de secretos
 
@@ -146,31 +209,39 @@ desde este endpoint.
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Build y navegador | Público por diseño |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Build y navegador | Público por diseño; RLS lo limita |
-| `SUPABASE_SERVICE_ROLE_KEY` | `.env` local + secrets de la función | Scripts y Edge Function |
+| `SUPABASE_SERVICE_ROLE_KEY` | `.env` local + secrets de funciones | Scripts y Edge Functions |
 | `SUPABASE_DB_PASSWORD` | `.env` local | Migraciones por conexión directa |
+| `RESEND_API_KEY` | Secrets de la Edge Function | `send-reminder` |
+| `REMINDER_FROM_EMAIL`, `REMINDER_FROM_NAME` | Secrets de la Edge Function | `send-reminder` |
 | Secrets de GitHub | Repositorio > Settings > Secrets | `deploy.yml` |
 
 Reglas:
 
 - Nunca prefijar un secreto con `NEXT_PUBLIC_`.
-- Nunca pegar la clave de servicio en una consulta SQL, un issue o un log.
-- Rotar la clave de servicio si se filtró (Project Settings > API > Rotate).
+- Nunca pegar una clave de servicio o de Resend en una consulta SQL, un issue o
+  un log.
+- Rotar la clave afectada si se filtró (Supabase > Project Settings > API;
+  Resend > API Keys).
 - El `.env` está ignorado por Git; `.env.example` solo contiene marcadores.
 
 ## Checklist antes de operar con clientes reales
 
 - [ ] Registro público desactivado en Supabase Auth (Email > Allow new users to
       sign up).
-- [ ] Confirmación de correo activada si se van a crear cuentas reales.
 - [ ] Contraseñas de demostración cambiadas o cuentas demo eliminadas.
 - [ ] `NEXT_PUBLIC_DEMO_MODE` en `false`.
-- [ ] Migraciones aplicadas, incluida `20261028000000_security_hardening.sql`.
+- [ ] Migraciones aplicadas, incluida `20261029000000_multi_shop.sql`.
+- [ ] Edge Functions `admin-users` y `send-reminder` desplegadas.
+- [ ] Dominio de envío verificado en Resend y variables configuradas con
+      `npx supabase secrets set`.
+- [ ] Al menos una barbería creada con `npm run db:create-shop` y su
+      administrador probado.
 - [ ] `npm run smoke:supabase` en verde contra el proyecto real.
 - [ ] Verificar en SQL que `profiles` no tenga `update` de tabla completa.
-- [ ] Autenticación en dos pasos en la cuenta de Supabase y en GitHub.
+- [ ] Autenticación en dos pasos en Supabase, GitHub y Resend.
 - [ ] Copia de seguridad automática de Supabase activa (plan de pago) o
       exportación periódica.
-- [ ] Una persona responsable de la cuenta de Supabase identificada.
+- [ ] Una persona responsable de cada cuenta identificada.
 
 ## Verificación rápida en SQL
 
@@ -180,6 +251,14 @@ select grantee, column_name
 from information_schema.column_privileges
 where table_schema = 'public'
   and table_name = 'profiles'
+  and privilege_type = 'UPDATE'
+  and grantee = 'authenticated';
+
+-- `shops` no debe otorgar update sobre id, slug ni timestamps.
+select grantee, column_name
+from information_schema.column_privileges
+where table_schema = 'public'
+  and table_name = 'shops'
   and privilege_type = 'UPDATE'
   and grantee = 'authenticated';
 
@@ -196,34 +275,46 @@ select tablename, policyname, cmd, roles
 from pg_policies
 where schemaname = 'public'
 order by tablename, policyname;
+
+-- Toda tabla del tenant debe tener shop_id.
+select table_name
+from information_schema.columns
+where table_schema = 'public'
+  and column_name = 'shop_id'
+order by table_name;
 ```
 
 ## Riesgos residuales asumidos
 
 1. **Enlace de confirmación sin vencimiento.** El UUID funciona como credencial
-   permanente. Si se comparte, cualquiera con el enlace ve el turno. No se
-   puede enumerar. Mitigación: no registrar el enlace en analítica ni en chats
-   grupales.
+   permanente. Si se comparte, cualquiera con el enlace ve el turno y puede
+   fijar el correo del recordatorio. No se puede enumerar. Mitigación: no
+   registrar el enlace en analítica ni en chats grupales.
 2. **Sin captcha.** El freno por teléfono y el límite de Supabase Auth cubren el
    caso normal. Si aparece spam coordinado, agregar Turnstile en `/reservar`.
-3. **CORS abierto en la Edge Function.** Cualquier origen puede invocarla, pero
-   necesita un JWT de administrador. Se puede restringir el origen si el
-   despliegue tiene un dominio fijo.
-4. **El panel confía en el filtrado del cliente para la experiencia.** La
+3. **CORS abierto en las Edge Functions.** Cualquier origen puede invocarlas;
+   `admin-users` exige un JWT de administrador y `send-reminder` exige un UUID
+   válido. Se puede restringir el origen si el despliegue tiene un dominio fijo.
+4. **Sin límite global de recordatorios.** El enfriamiento es por turno. Un
+   atacante con muchos UUID válidos podría generar tráfico; el volumen depende
+   de cuántas reservas reales existan y Resend aplica sus propios límites.
+5. **El panel confía en el filtrado del cliente para la experiencia.** La
    seguridad real está en RLS; un barbero que llame a la API directamente
-   obtiene lo que las políticas permiten, que es el conjunto del personal. Si se
-   necesita aislamiento estricto entre barberos, hay que endurecer las políticas
-   de `select` por `barber_id`.
-5. **Sin auditoría de cambios.** No hay tabla de historial. Para operaciones
+   obtiene lo que las políticas permiten: el conjunto del personal de su
+   barbería. Si se necesita aislamiento estricto entre barberos, hay que
+   endurecer las políticas de `select` por `barber_id`.
+6. **Sin auditoría de cambios.** No hay tabla de historial. Para operaciones
    sensibles, Supabase conserva logs de API según el plan contratado.
 
 ## Respuesta a incidentes
 
-1. Rotar `SUPABASE_SERVICE_ROLE_KEY` y las claves de GitHub.
-2. Revisar `auth.users` y `profiles` en busca de cuentas desconocidas o roles
+1. Rotar `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` y las claves de GitHub.
+2. Si el problema es una barbería concreta, poner `shops.active = false`: deja
+   de aparecer al público y su personal pierde acceso a los datos.
+3. Revisar `auth.users` y `profiles` en busca de cuentas desconocidas o roles
    alterados.
-3. Revisar `appointments` creados fuera del horario o con precios incoherentes.
-4. Si se filtró un enlace de confirmación, contactar al cliente afectado.
-5. Aplicar la corrección como una migración nueva y volver a correr el smoke
+4. Revisar `appointments` creados fuera del horario o con precios incoherentes.
+5. Si se filtró un enlace de confirmación, contactar al cliente afectado.
+6. Aplicar la corrección como una migración nueva y volver a correr el smoke
    test.
-6. Documentar qué pasó y qué se cambió en `docs/04-OPERACION.md`.
+7. Documentar qué pasó y qué se cambió en `docs/04-OPERACION.md`.

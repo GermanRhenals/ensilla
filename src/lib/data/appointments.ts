@@ -24,7 +24,7 @@ import {
   text,
   type Row,
 } from "./rows";
-import { mapAppointment } from "./mappers";
+import { mapAppointment, mapConfirmation } from "./mappers";
 
 /** Listado del panel de citas. El tope de 300 acota la vista, no los datos. */
 export async function fetchAppointments({
@@ -193,13 +193,38 @@ export async function updateAppointmentNotes(id: string, notes: string) {
   if (error) fail(error);
 }
 
-export async function markReminderSent(id: string) {
-  const { error } = await supabase
-    .from("appointments")
-    .update({ reminder_sent_at: new Date().toISOString() })
-    .eq("id", id);
+/**
+ * Envía el recordatorio por correo desde la Edge Function `send-reminder`.
+ *
+ * La función usa la clave de servicio: lee el correo del cliente sin exponerlo
+ * al navegador, envía con Resend y marca `reminder_sent_at`. El UUID de la
+ * reserva funciona como credencial, igual que en la confirmación.
+ */
+export async function sendBookingReminder(id: string) {
+  const { data, error } = await supabase.functions.invoke("send-reminder", {
+    body: { appointmentId: id },
+  });
 
-  if (error) fail(error);
+  if (error) {
+    // `functions.invoke` devuelve un error genérico cuando la función responde
+    // con un código distinto de 2xx; el mensaje real viaja en el cuerpo.
+    throw new Error(
+      data?.error
+        ? String(data.error)
+        : "No se pudo enviar el recordatorio. Intentá de nuevo.",
+    );
+  }
+  if (data?.error) throw new Error(String(data.error));
+}
+
+/** Guarda el correo del cliente después de reservar. Solo si aún no tenía. */
+export async function saveBookingEmail(id: string, email: string) {
+  const { error } = await supabase.rpc("set_booking_email", {
+    p_id: id,
+    p_email: email,
+  });
+
+  if (error) throw new Error(error.message);
 }
 
 /** Payload de la página pública de confirmación (UUID como credencial). */
@@ -211,5 +236,5 @@ export async function fetchConfirmation(
   });
 
   if (error) fail(error);
-  return (data as ConfirmationPayload | null) ?? null;
+  return data ? mapConfirmation(data as Row) : null;
 }

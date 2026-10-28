@@ -10,7 +10,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "smoke:supabase": "node --env-file=.env scripts/smoke-supabase.mjs",
-    "db:seed:supabase": "node --env-file=.env scripts/seed-supabase.mjs"
+    "db:seed:supabase": "node --env-file=.env scripts/seed-supabase.mjs",
+    "db:create-shop": "node --env-file=.env scripts/create-shop.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -6,32 +6,39 @@ panel de Supabase: se versiona con migraciones.
 ## Diagrama
 
 ```text
+shops (barbería / tenant)
+  │ 1:N
+  ├── profiles ───────────────┐
+  │      │ 1:N                │ 1:N
+  │      ▼                    ▼
+  │   appointments ◀── clients   time_off
+  │      │              │
+  │      │ N:1          │ 1:N
+  │      ▼              ▼
+  ├── services      haircut_ideas
+  ├── business_hours (7 filas por barbería)
+  └── notifications (N:1 con profiles)
+
 auth.users (Supabase)
     │ 1:1
     ▼
-profiles ────────────────┐
-    │ 1:N                 │ 1:N
-    ▼                     ▼
-appointments ◀── clients   time_off
-    │              │
-    │ N:1          │ 1:N
-    ▼              ▼
-services      haircut_ideas
-
-shop_setting (fila única)
-business_hours (7 filas, una por día)
-notifications (N:1 con profiles)
+profiles
 ```
+
+Todas las tablas operativas llevan `shop_id` con FK a `shops` y `on delete
+restrict`: una barbería con historia no se borra por accidente.
 
 ## Tablas
 
-### `shop_setting`
+### `shops`
 
-Configuración global. Solo existe la fila `id = 1` (restricción `check`).
+Raíz del tenant. El `slug` es la identidad pública y no se cambia desde el
+navegador.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
-| `id` | integer | Siempre 1 |
+| `id` | uuid | PK |
+| `slug` | text | Único; minúsculas, números y guiones simples |
 | `name`, `tagline` | text | Identidad visible |
 | `description`, `address`, `phone`, `whatsapp`, `email`, `instagram` | text | Opcionales |
 | `currency` | text | ISO-4217, por defecto `COP` |
@@ -42,6 +49,10 @@ Configuración global. Solo existe la fila `id = 1` (restricción `check`).
 | `buffer_min` | integer | Colchón entre turnos: 0 a 120 |
 | `lead_time_min` | integer | Anticipación mínima: 0 a 1440 |
 | `booking_window_days` | integer | Días hacia adelante: 1 a 120 |
+| `active` | boolean | Una barbería inactiva desaparece del sitio y bloquea a su equipo; solo se cambia con la clave de servicio |
+
+La tabla reemplaza a `shop_setting`. La migración multi-barbería copió la
+barbería existente y eliminó la tabla monolocal.
 
 ### `profiles`
 
@@ -50,6 +61,7 @@ Extiende `auth.users`. Un perfil no existe sin usuario de Auth.
 | Columna | Tipo | Notas |
 | --- | --- | --- |
 | `id` | uuid | PK, FK a `auth.users` con `on delete cascade` |
+| `shop_id` | uuid | FK a `shops`; define el tenant del usuario |
 | `name` | text | Obligatorio |
 | `email` | text | Único sin distinguir mayúsculas |
 | `role` | text | `ADMIN` o `BARBER` |
@@ -59,22 +71,27 @@ Extiende `auth.users`. Un perfil no existe sin usuario de Auth.
 
 Invariantes:
 
-- Un usuario que se registra por su cuenta nace con `active = false`.
-- Siempre debe quedar al menos un `ADMIN` activo; lo garantiza la Edge
-  Function, no la base.
-- `role` y `active` no son editables por el cliente (privilegios de columna).
+- Un usuario que se registra por su cuenta nace con `active = false` y en la
+  barbería indicada en `raw_user_meta_data.shop_id`; si falta, en la más
+  antigua.
+- Siempre debe quedar al menos un `ADMIN` activo por barbería; lo garantiza la
+  Edge Function, no la base.
+- `role`, `active` y `shop_id` no son editables por el cliente (privilegios de
+  columna).
 
 ### `business_hours`
 
-Una fila por día de la semana (`weekday` 0 = domingo a 6 = sábado).
+Una fila por día de la semana dentro de cada barbería (`weekday` 0 = domingo a
+6 = sábado). Único por `(shop_id, weekday)`.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
-| `weekday` | integer | Único, 0 a 6 |
+| `shop_id` | uuid | FK a `shops` |
+| `weekday` | integer | 0 a 6 |
 | `open_minute`, `close_minute` | integer | Minutos desde medianoche, 0 a 1440 |
 | `active` | boolean | Día cerrado si es `false` |
 
-Los minutos se interpretan en la zona horaria de `shop_setting`.
+Los minutos se interpretan en la zona horaria de la barbería.
 
 ### `time_off`
 
@@ -82,29 +99,35 @@ Bloqueos de agenda (vacaciones, trámites, descansos).
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `user_id` | uuid | Perfil afectado; `null` = toda la barbería |
 | `start_at`, `end_at` | timestamptz | `end_at > start_at` |
 | `reason` | text | Opcional |
 
 ### `clients`
 
-Ficha del cliente. Se identifica por teléfono normalizado.
+Ficha del cliente. Se identifica por teléfono normalizado dentro de cada
+barbería: único por `(shop_id, phone)`.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `name` | text | Obligatorio |
-| `phone` | text | Único; normalizado con `normalize_phone` |
-| `email` | text | Opcional |
+| `phone` | text | Normalizado con `normalize_phone` |
+| `email` | text | Opcional; se usa para el recordatorio |
 | `birth_date` | date | Opcional |
 | `notes`, `hair_type`, `preferred_style`, `products`, `allergies` | text | Memoria del oficio |
 | `preferred_barber_id` | uuid | FK a `profiles` con `on delete set null` |
 
+El mismo teléfono puede ser cliente de dos barberías sin compartir ficha.
+
 ### `services`
 
-Catálogo de servicios.
+Catálogo de servicios por barbería.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `name`, `description` | text | Descripción opcional |
 | `duration_min` | integer | 5 a 480 minutos |
 | `price_cents` | integer | Mayor o igual a 0 |
@@ -117,6 +140,7 @@ Turno reservado. Es la tabla con más reglas.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `client_id` | uuid | FK `on delete restrict` |
 | `barber_id` | uuid | FK a `profiles` con `on delete restrict` |
 | `service_id` | uuid | FK a `services` con `on delete restrict` |
@@ -125,7 +149,7 @@ Turno reservado. Es la tabla con más reglas.
 | `price_cents` | integer | Precio congelado al momento de reservar |
 | `notes` | text | Notas internas |
 | `source` | text | `PUBLIC` o `STAFF` |
-| `reminder_sent_at` | timestamptz | Marca de recordatorio enviado |
+| `reminder_sent_at` | timestamptz | Marca del último recordatorio enviado |
 
 Restricción clave:
 
@@ -145,6 +169,7 @@ Ideas de corte asociadas a un cliente.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `title`, `description` | text | Obligatorios |
 | `tags` | text | Opcional, separado por comas |
 | `client_id` | uuid | FK `on delete restrict` |
@@ -156,6 +181,7 @@ Bandeja interna del equipo.
 
 | Columna | Tipo | Notas |
 | --- | --- | --- |
+| `shop_id` | uuid | FK a `shops` |
 | `user_id` | uuid | Destinatario; FK con `on delete cascade` |
 | `title`, `body` | text | Contenido |
 | `href` | text | Enlace interno opcional |
@@ -169,34 +195,56 @@ puede leer las propias y marcarlas como leídas.
 Proyección segura para el sitio público:
 
 ```sql
-select id, name, role, bio, color
+select id, shop_id, name, role, bio, color
 from profiles
-where active = true and role in ('ADMIN', 'BARBER')
+where active = true
+  and role in ('ADMIN', 'BARBER')
+  and is_active_shop(shop_id)
 ```
 
-No expone correo, teléfono ni estado interno. Se consulta sin sesión.
+No expone correo, teléfono ni estado interno. Se consulta sin sesión y siempre
+filtrada por `shop_id`.
 
 ## Funciones RPC
 
 | Función | Quién | Qué garantiza |
 | --- | --- | --- |
-| `get_availability(date, uuid, uuid)` | `anon`, `authenticated` | Huecos reales según horario, turnos, bloqueos, anticipación y ventana |
-| `create_public_booking(...)` | `anon`, `authenticated` | Alta pública validada, cliente sin sobrescritura de nombre, anti-abuso y notificación |
-| `create_staff_appointment(...)` | `authenticated` | Alta desde el panel, respeta el alcance del barbero |
-| `get_booking_confirmation(uuid)` | `anon`, `authenticated` | Datos mínimos de una reserva concreta |
+| `search_shops(text)` | `anon`, `authenticated` | Busca barberías activas por nombre o slug; mínimo 2 caracteres y tope de 12 |
+| `get_public_shop(text)` | `anon`, `authenticated` | Configuración pública de una barbería activa por slug |
+| `current_shop()` | `authenticated` | Configuración de la barbería del perfil autenticado |
+| `current_shop_id()` | `anon`, `authenticated` | `shop_id` del perfil activo en una barbería activa; base de las políticas RLS |
+| `is_active_shop(uuid)` | `anon`, `authenticated` | Verdadero solo para barberías publicadas |
+| `get_availability(uuid, date, uuid, uuid)` | `anon`, `authenticated` | Huecos reales según barbería, horario, turnos, bloqueos, anticipación y ventana |
+| `create_public_booking(uuid, uuid, uuid, timestamptz, text, text, text, text, text, text)` | `anon`, `authenticated` | Alta pública validada, cliente por barbería, anti-abuso y notificación |
+| `create_staff_appointment(...)` | `authenticated` | Alta desde el panel; deduce la barbería con `current_shop_id()` |
+| `get_booking_confirmation(uuid)` | `anon`, `authenticated` | Datos mínimos de una reserva, con su barbería y `has_email` |
+| `set_booking_email(uuid, text)` | `anon`, `authenticated` | Completa el correo faltante después de reservar; solo en turnos pendientes o confirmados |
 | `is_staff()`, `is_admin()`, `current_app_role()` | `anon`, `authenticated` | Helpers de RLS |
 | `normalize_phone(text, text)` | interno | Normalización compartida con el frontend |
-| `booking_validate(...)` | interno | Validación previa de servicio, barbero y horario |
-| `handle_new_user()`, `handle_user_email_change()` | trigger | Sincronización con Auth |
+| `booking_validate(...)` | interno | Validación previa de barbería, servicio, barbero y horario |
+| `handle_new_user()` | trigger | Crea el perfil inactivo en la barbería indicada por metadatos |
+| `handle_user_email_change()` | trigger | Sincronización de correo con Auth |
 | `set_updated_at()` | trigger | Actualización de `updated_at` |
 
 Las funciones internas tienen `execute` revocado para `public`, `anon` y
 `authenticated`.
 
+## Provisión de barberías
+
+No hay alta pública. El script `scripts/create-shop.mjs` usa la clave de
+servicio para:
+
+1. Crear o actualizar la fila de `shops` por slug.
+2. Crear el horario semanal por defecto si la barbería no tiene uno.
+3. Crear el primer usuario administrador con `shop_id` en los metadatos y
+   activar su perfil.
+
+Después del alta, el administrador completa servicios, equipo y ajustes desde
+el panel.
+
 ## Convenciones de nombres
 
-- Tablas en plural (`clients`, `appointments`), salvo configuración
-  (`shop_setting`).
+- Tablas en plural (`shops`, `clients`, `appointments`).
 - Columnas en `snake_case`; el frontend las convierte a `camelCase` en
   `src/lib/data/mappers.ts`.
 - Dinero: sufijo `_cents`, siempre entero.
@@ -210,6 +258,7 @@ Las funciones internas tienen `execute` revocado para `public`, `anon` y
 | `20261027194500_init.sql` | Esquema inicial, RLS, vista pública, disponibilidad, alta de turnos |
 | `20261027210000_shop_locale.sql` | Idioma y país de WhatsApp por barbería |
 | `20261028000000_security_hardening.sql` | Privilegios por columna, anti-abuso, integridad y autoregistro inactivo |
+| `20261029000000_multi_shop.sql` | `shops`, `shop_id` en todo el tenant, RLS por barbería, búsqueda pública, correo posterior y confirmación con barbería |
 
 Reglas:
 
@@ -223,7 +272,9 @@ Reglas:
 
 - Un año de operación de una barbería de barrio ronda los miles de turnos, no
   millones. Postgres y los índices actuales sobran.
-- `appointments` tiene índices por `(barber_id, start_at)`, `client_id` y
-  `start_at`.
-- `notification` se poda de forma natural porque la consulta trae las últimas
+- `appointments` tiene índices por barbería y por `(barber_id, start_at)`,
+  `client_id` y `start_at`.
+- `notifications` se poda de forma natural porque la consulta trae las últimas
   60; si crece demasiado, se puede agregar una tarea de limpieza mensual.
+- El crecimiento del marketplace se mide en barberías, no en filas: cada tenant
+  tiene su propio conjunto de datos y sus índices por `shop_id`.

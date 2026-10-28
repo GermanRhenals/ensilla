@@ -1,7 +1,7 @@
 # En-silla — notas para agentes
 
-Aplicación de reservas y panel para una barbería. Español de Colombia, precios
-en centavos y fechas en la zona horaria de la barbería.
+Marketplace de reservas para barberías. Español de Colombia, precios en centavos
+y fechas en la zona horaria de cada barbería.
 
 Stack real: **Next.js 16 con export estático** (`output: "export"`), React 19,
 TypeScript estricto, Tailwind v4 y **Supabase** como backend completo. No hay
@@ -21,8 +21,12 @@ operativo para quien edita el código.
 - Build local servido: `npm run build` y `npm start` (sirve `out/`).
 - Base de datos: `npx supabase link --project-ref <ref>` y
   `npx supabase db push`.
-- Datos demo: `npm run db:seed:supabase` (usa la API y crea usuarios de Auth).
-- Humo contra Supabase real: `npm run smoke:supabase`.
+- Nueva barbería: `npm run db:create-shop -- --slug ... --name ... --admin-email ...`
+  (usa la clave de servicio; `--update` para modificarla).
+- Datos demo: `npm run db:seed:supabase` (destructivo solo con la barbería
+  `en-silla`; crea usuarios de Auth).
+- Humo contra Supabase real: `npm run smoke:supabase`. El envío real de correo
+  es opt-in con `SMOKE_SEND_REMINDER=true`.
 - `allowScripts` en `package.json` es necesario para `unrs-resolver`; no borrar.
   `npm install` avisa que `eslint@9` está deprecado: es esperado.
 
@@ -30,6 +34,8 @@ operativo para quien edita el código.
 
 - Rutas públicas en `src/app/(public)`: `/`, `/reservar`,
   `/reservar/confirmacion`.
+- `/` muestra el buscador; `/reservar?barberia=<slug>` resuelve la barbería.
+  Sin slug válido se vuelve al buscador, no a un error técnico.
 - Login en `src/app/login`; todo el resto vive bajo `src/app/panel`.
 - No hay `middleware` ni `proxy`: la protección real es RLS en Postgres. El
   panel redirige a `/login` cuando no hay perfil, pero eso es solo experiencia
@@ -46,42 +52,72 @@ operativo para quien edita el código.
 - La autenticación es Supabase Auth. `AuthProvider` (`src/lib/auth-context.tsx`)
   carga el perfil y cierra la sesión si el perfil no existe o está inactivo.
 
+## Multi-barbería
+
+- `shops` es la raíz del tenant. `profiles.shop_id` define a qué barbería
+  pertenece cada usuario.
+- Todas las tablas operativas (`business_hours`, `services`, `clients`,
+  `appointments`, `time_off`, `haircut_ideas`, `notifications`) llevan
+  `shop_id` con FK `on delete restrict`.
+- `current_shop_id()` devuelve la barbería del perfil activo y es la base de las
+  políticas RLS. No reemplazarla por un `shop_id` que venga del navegador.
+- `is_active_shop(uuid)` limita lo que `anon` puede leer.
+- En el panel, `fetchShop()` llama a `current_shop`: no acepta `shopId` por
+  parámetro. En el sitio público, `fetchShopBySlug()` y `searchShops()` cubren
+  la resolución y el buscador.
+- La búsqueda exige mínimo 2 caracteres, usa `unaccent`, devuelve como máximo 12
+  barberías activas y nunca un directorio completo.
+- No hay registro público de barberías: se provisionan con
+  `scripts/create-shop.mjs` y la clave de servicio.
+
 ## Reglas de negocio que no se pueden romper
 
 - **Alta de turnos**: solo por RPC. `create_public_booking` para el sitio
-  público y `create_staff_appointment` para el panel. Validan horario, precio,
+  público (recibe `p_shop_id`) y `create_staff_appointment` para el panel
+  (deduce la barbería con `current_shop_id()`). Validan horario, precio,
   solapamiento (restricción `exclude using gist`), bloqueos y anticipación.
 - **Actualización de turnos**: desde el panel solo se pueden escribir
   `status`, `notes` y `reminder_sent_at`. El resto de columnas está revocado a
   nivel de columna. No agregar formularios que escriban otras columnas.
-- **Perfiles**: `role` y `active` no se cambian por `update` directo. Van por la
-  Edge Function `admin-users` (acciones `create`, `update`, `toggle`), que
-  verifica que quien invoca sea `ADMIN` activo y que quede al menos un
-  administrador activo.
+- **Perfiles**: `role`, `active` y `shop_id` no se cambian por `update` directo.
+  Van por la Edge Function `admin-users` (acciones `create`, `update`,
+  `toggle`), que verifica que quien invoca sea `ADMIN` activo de la misma
+  barbería y que quede al menos un administrador activo en ella.
 - **Borrado de clientes**: solo administradores. `appointments.client_id` y
   `haircut_ideas.client_id` usan `on delete restrict`: un cliente con historial
   no se puede borrar.
 - **Reserva pública**: nunca sobrescribe el nombre de un cliente existente,
   normaliza el teléfono con el país configurado, limita longitudes y acepta
-  como máximo 3 reservas públicas por teléfono por hora.
+  como máximo 3 reservas públicas por teléfono y barbería por hora.
 - **Teléfonos**: `src/lib/phone.ts` y `public.normalize_phone(text, text)` deben
   producir el mismo resultado. Si cambia una, cambiar la otra.
 - **Confirmación pública**: se lee por RPC `get_booking_confirmation`; el UUID
   funciona como credencial. No agregar teléfono del barbero ni datos internos.
+  El correo del cliente se expone solo como `hasEmail`.
+- **Correo posterior**: `set_booking_email` solo acepta reservas `PENDING` o
+  `CONFIRMED`, únicamente completa un correo faltante y nunca devuelve el correo
+  guardado.
+- **Recordatorios**: solo por la Edge Function `send-reminder`, con enfriamiento
+  de 2 minutos y un único destinatario. El navegador nunca ve el correo ni la
+  clave de Resend.
 - **Notificaciones**: las crea el backend (RPC `security definer`). El cliente
   solo puede leer las propias y marcarlas como leídas.
 
 ## Convenciones de dominio
 
-- Zona horaria, moneda, idioma y país de WhatsApp salen de `shop_setting`
-  (`fetchShop()`). Usar `src/lib/datetime.ts` para cualquier conversión o
-  formato; nunca `new Date().toLocaleString()` con la zona del navegador.
+- Zona horaria, moneda, idioma y país de WhatsApp salen de la barbería
+  (`fetchShop()` en el panel, `fetchShopBySlug()` en el sitio público). Usar
+  `src/lib/datetime.ts` para cualquier conversión o formato; nunca
+  `new Date().toLocaleString()` con la zona del navegador.
+- `FALLBACK_SHOP` tiene `id` vacío: sirve para renderizar, nunca para escribir.
 - Dinero en centavos (`priceCents`) formateado con `formatMoney`.
 - Estados de turno y etiquetas en `src/lib/constants.ts`. El tipo
   `AppointmentStatus` se reexporta desde `src/lib/types.ts`.
 - Origen del turno: `PUBLIC` o `STAFF`.
 - Paginación: PostgREST devuelve como máximo 1000 filas. Para totales o
   históricos usar `selectAllPages` (siempre con `order` estable).
+- Nombres de tabla en plural, columnas en `snake_case`; el frontend las pasa a
+  `camelCase` en `src/lib/data/mappers.ts`.
 
 ## Interfaz
 
@@ -94,6 +130,8 @@ operativo para quien edita el código.
 - El texto de la interfaz es español rioplatense-colombiano neutro ("reservá",
   "turno", "barbería"). Mantener ese registro.
 - Las páginas que usan `useSearchParams` deben estar dentro de `<Suspense>`.
+- La confirmación debe ofrecer "Enviar recordatorio" y "Cerrar". El recordatorio
+  se habilita cuando la reserva tiene correo.
 
 ## Comentarios y estilo
 
@@ -111,10 +149,14 @@ operativo para quien edita el código.
 - `deploy.yml` se ejecuta a mano (`workflow_dispatch`); `ci.yml` verifica cada
   push y pull request a `main`.
 - El registro público de Supabase Auth debe estar desactivado. Las cuentas se
-  crean desde el panel. Si se habilita, los usuarios nuevos nacen inactivos por
-  la migración de endurecimiento.
+  crean desde el panel o con `create-shop`. Si se habilita, los usuarios nuevos
+  nacen inactivos por la migración de endurecimiento.
 - `NEXT_PUBLIC_DEMO_MODE` controla las credenciales de ejemplo del login. En
   producción debe ser `false`.
+- `send-reminder` necesita `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y,
+  opcionalmente, `REMINDER_FROM_NAME` en los secrets de Supabase. El remitente
+  debe pertenecer a un dominio verificado en Resend.
+- La clave de servicio y la de Resend nunca llevan prefijo `NEXT_PUBLIC_`.
 
 ## Trampas conocidas
 
@@ -122,7 +164,11 @@ operativo para quien edita el código.
   `supabase/migrations/`.
 - No otorgar `update` de tabla completa sobre `profiles` ni `appointments`;
   rompe el modelo de privilegios por columna.
+- No agregar una tabla del tenant sin `shop_id`, RLS y política por
+  `current_shop_id()`.
 - No leer `clients` desde el sitio público: no hay política para `anon`.
+- No confiar en un `shop_id` recibido del navegador para autorizar: las RPC
+  vuelven a validar servicio, barbero y turno.
 - El enlace de confirmación es la única credencial del cliente: no registrar
   esos UUID en logs ni en analytics.
 - El build estático falla si una página usa APIs exclusivas del servidor.

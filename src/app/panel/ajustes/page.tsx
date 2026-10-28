@@ -61,7 +61,7 @@ export default function SettingsPage() {
         );
       }
 
-      await updateShop({
+      await updateShop(shop.id, {
         name: String(formData.get("name") || "").trim(),
         tagline: String(formData.get("tagline") || "").trim(),
         description:
@@ -103,6 +103,7 @@ export default function SettingsPage() {
     const formData = new FormData(event.currentTarget);
     try {
       await updateHours(
+        shop.id,
         WEEKDAY_LABELS.map((_, weekday) => ({
           weekday,
           active: formData.get(`active-${weekday}`) === "on",

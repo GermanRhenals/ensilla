@@ -10,7 +10,8 @@
  * - Exige un JWT válido y comprueba que el perfil de quien invoca sea ADMIN
  *   activo (se consulta con la clave de servicio, sin confiar en el cliente).
  * - Nunca acepta `role` arbitrario: solo ADMIN o BARBER.
- * - Impide dejar la instalación sin ningún administrador activo.
+ * - Impide dejar la barbería sin ningún administrador activo.
+ * - Acota cada lectura y escritura al `shop_id` del administrador que invoca.
  * - Valida y acota todos los campos antes de escribir.
  * - Usa `SUPABASE_SERVICE_ROLE_KEY`, que vive solo en el entorno de Supabase.
  */
@@ -92,17 +93,34 @@ Deno.serve(async (request) => {
 
   const { data: callerProfile } = await admin
     .from("profiles")
-    .select("role,active")
+    .select("role,active,shop_id")
     .eq("id", caller.user.id)
     .maybeSingle();
 
   if (
     !callerProfile ||
     callerProfile.role !== "ADMIN" ||
-    !callerProfile.active
+    !callerProfile.active ||
+    !callerProfile.shop_id
   ) {
     return json({ error: "Solo un administrador puede hacer esto." }, 403);
   }
+
+  // La barbería suspendida no puede administrar su equipo, igual que no puede
+  // operar el panel: `current_shop_id()` también exige `active = true`.
+  const { data: callerShop } = await admin
+    .from("shops")
+    .select("active")
+    .eq("id", callerProfile.shop_id)
+    .maybeSingle();
+
+  if (!callerShop?.active) {
+    return json({ error: "La barbería no está disponible." }, 403);
+  }
+
+  // Toda operación queda acotada a la barbería de quien invoca. El cliente
+  // nunca envía `shop_id`: se deduce del perfil autenticado.
+  const shopId = String(callerProfile.shop_id);
 
   let body: Record<string, unknown>;
   try {
@@ -121,6 +139,7 @@ Deno.serve(async (request) => {
     const { count } = await admin
       .from("profiles")
       .select("id", { count: "exact", head: true })
+      .eq("shop_id", shopId)
       .eq("role", "ADMIN")
       .eq("active", true)
       .neq("id", excludeId);
@@ -159,7 +178,9 @@ Deno.serve(async (request) => {
           email,
           password,
           email_confirm: true,
-          user_metadata: { name },
+          // `shop_id` viaja en los metadatos para que el trigger
+          // `handle_new_user` cree el perfil en la barbería correcta.
+          user_metadata: { name, shop_id: shopId },
         });
 
       if (createError) return json({ error: createError.message }, 400);
@@ -167,6 +188,7 @@ Deno.serve(async (request) => {
       const { error: profileError } = await admin.from("profiles").upsert(
         {
           id: created.user.id,
+          shop_id: shopId,
           email,
           name,
           phone,
@@ -219,8 +241,9 @@ Deno.serve(async (request) => {
 
       const { data: target } = await admin
         .from("profiles")
-        .select("role,active")
+        .select("role,active,shop_id")
         .eq("id", id)
+        .eq("shop_id", shopId)
         .maybeSingle();
 
       if (!target) return json({ error: "El integrante no existe." }, 404);
@@ -244,14 +267,18 @@ Deno.serve(async (request) => {
         email,
         email_confirm: true,
         ...(password ? { password } : {}),
-        user_metadata: { name },
+        // `shop_id` se conserva en los metadatos: si más adelante se recrea el
+        // perfil (por ejemplo, al repetir el alta), el trigger debe seguir
+        // apuntando a la misma barbería.
+        user_metadata: { name, shop_id: shopId },
       });
       if (authError) return json({ error: authError.message }, 400);
 
       const { error: profileError } = await admin
         .from("profiles")
         .update({ email, name, phone, bio, color, role, active })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("shop_id", shopId);
       if (profileError) return json({ error: profileError.message }, 400);
 
       return json({ id });
@@ -267,8 +294,9 @@ Deno.serve(async (request) => {
 
       const { data: target } = await admin
         .from("profiles")
-        .select("role,active")
+        .select("role,active,shop_id")
         .eq("id", id)
+        .eq("shop_id", shopId)
         .maybeSingle();
 
       if (!target) return json({ error: "El integrante no existe." }, 404);
@@ -288,7 +316,8 @@ Deno.serve(async (request) => {
       const { error: profileError } = await admin
         .from("profiles")
         .update({ active })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("shop_id", shopId);
       if (profileError) return json({ error: profileError.message }, 400);
 
       return json({ id, active });

@@ -1,3 +1,15 @@
+/**
+ * Prueba de humo contra un Supabase real.
+ *
+ * Verifica el flujo completo del marketplace: búsqueda pública, reserva en una
+ * barbería, confirmación sin datos internos, correo posterior, aislamiento
+ * entre barberías y administración de cuentas acotada por barbería.
+ *
+ * Crea datos temporales y los borra al final. No envía correos salvo que se
+ * pase `SMOKE_SEND_REMINDER="true"` y la Edge Function tenga Resend
+ * configurado.
+ */
+
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
 
@@ -20,7 +32,14 @@ const suffix = randomBytes(3).toString("hex");
 const testName = `Smoke Test ${suffix}`;
 const testPhone = `99${Date.now().toString().slice(-8)}`;
 const testEmail = `smoke-${suffix}@ensilla.test`;
-const created = { appointments: [], clientId: null, userId: null };
+const tempSlug = `smoke-${suffix}`;
+const created = {
+  appointments: [],
+  clientId: null,
+  userId: null,
+  tempShopId: null,
+  tempServiceId: null,
+};
 const startedAt = new Date().toISOString();
 
 function assert(condition, message) {
@@ -42,10 +61,11 @@ function addDays(date, days) {
   return next;
 }
 
-async function findSlot({ serviceId, barberId, timezone }) {
+async function findSlot({ shopId, serviceId, barberId, timezone }) {
   for (let offset = 1; offset <= 21; offset += 1) {
     const day = dateKey(addDays(new Date(), offset), timezone);
     const { data, error } = await anon.rpc("get_availability", {
+      p_shop_id: shopId,
       p_date: day,
       p_service_id: serviceId,
       p_barber_id: barberId ?? null,
@@ -57,24 +77,65 @@ async function findSlot({ serviceId, barberId, timezone }) {
 }
 
 try {
+  const shopSlug = process.env.SMOKE_SHOP_SLUG ?? "en-silla";
+  const { data: shop, error: shopError } = await service
+    .from("shops")
+    .select("*")
+    .eq("slug", shopSlug)
+    .single();
+  if (shopError) throw shopError;
+
   const [
-    { data: shop, error: shopError },
     { data: services, error: serviceError },
     { data: barbers, error: barberError },
   ] = await Promise.all([
-    service.from("shop_setting").select("*").eq("id", 1).single(),
-    service.from("services").select("*").eq("active", true).limit(1),
-    service.from("profiles").select("id,name").eq("active", true).limit(1),
+    anon
+      .from("services")
+      .select("*")
+      .eq("shop_id", shop.id)
+      .eq("active", true)
+      .limit(1),
+    anon
+      .from("barbers_public")
+      .select("*")
+      .eq("shop_id", shop.id)
+      .limit(1),
   ]);
-  if (shopError) throw shopError;
   if (serviceError) throw serviceError;
   if (barberError) throw barberError;
 
   const serviceRow = services?.[0];
   const barber = barbers?.[0];
   assert(serviceRow && barber, "Faltan datos base para la prueba.");
+  console.log(`✓ datos públicos de ${shop.name}`);
+
+  if (barber && ("email" in barber || "phone" in barber)) {
+    throw new Error("barbers_public expone datos de contacto del equipo.");
+  }
+  console.log("✓ barbers_public sin correo ni teléfono");
+
+  // Búsqueda por nombre: el visitante ya conoce la barbería.
+  const searchTerm = shop.name.slice(0, Math.min(6, shop.name.length));
+  const { data: results, error: searchError } = await anon.rpc("search_shops", {
+    p_query: searchTerm,
+  });
+  if (searchError) throw searchError;
+  assert(
+    (results ?? []).some((row) => row.id === shop.id),
+    "La búsqueda pública no devolvió la barbería.",
+  );
+  console.log("✓ search_shops");
+
+  const { data: publicShop, error: publicShopError } = await anon.rpc(
+    "get_public_shop",
+    { p_slug: shop.slug },
+  );
+  if (publicShopError) throw publicShopError;
+  assert(publicShop?.id === shop.id, "get_public_shop devolvió otra barbería.");
+  console.log("✓ get_public_shop");
 
   const slot = await findSlot({
+    shopId: shop.id,
     serviceId: serviceRow.id,
     barberId: barber.id,
     timezone: shop.timezone,
@@ -84,6 +145,7 @@ try {
   const { data: publicId, error: publicError } = await anon.rpc(
     "create_public_booking",
     {
+      p_shop_id: shop.id,
       p_service_id: serviceRow.id,
       p_barber_id: slot.barber_id,
       p_start: slot.start_at,
@@ -105,8 +167,17 @@ try {
   );
   if (confirmationError) throw confirmationError;
   assert(confirmation?.client?.name === testName, "Confirmación incorrecta.");
-  // La confirmación pública no debe exponer el teléfono del barbero ni datos
-  // internos del turno.
+  assert(confirmation?.shop?.id === shop.id, "La confirmación muestra otra barbería.");
+  assert(
+    confirmation?.client?.has_email === false,
+    "La reserva no debería tener correo todavía.",
+  );
+  // Ni el correo del cliente ni el teléfono del barbero deben viajar al
+  // navegador. `has_email` es lo único que necesita la pantalla.
+  assert(
+    !("email" in (confirmation?.client ?? {})),
+    "La confirmación expone el correo del cliente.",
+  );
   assert(
     !("phone" in (confirmation?.barber ?? {})),
     "La confirmación expone el teléfono del barbero.",
@@ -117,14 +188,33 @@ try {
     .from("appointments")
     .select("client_id")
     .eq("id", publicId)
+    .eq("shop_id", shop.id)
     .single();
   created.clientId = createdBooking?.client_id ?? null;
 
-  const { data: auth, error: authError } =
-    await anon.auth.signInWithPassword({
-      email: "admin@ensilla.app",
-      password: "admin123",
-    });
+  const { error: emailError } = await anon.rpc("set_booking_email", {
+    p_id: publicId,
+    p_email: testEmail,
+  });
+  if (emailError) throw emailError;
+
+  const { data: withEmail } = await anon.rpc("get_booking_confirmation", {
+    p_id: publicId,
+  });
+  assert(
+    withEmail?.client?.has_email === true,
+    "set_booking_email no actualizó la confirmación.",
+  );
+  assert(
+    !("email" in (withEmail?.client ?? {})),
+    "La confirmación expone el correo después de guardarlo.",
+  );
+  console.log("✓ set_booking_email");
+
+  const { data: auth, error: authError } = await anon.auth.signInWithPassword({
+    email: "admin@ensilla.app",
+    password: "admin123",
+  });
   if (authError) throw authError;
   assert(auth.session, "No se pudo iniciar sesión como admin.");
 
@@ -135,6 +225,9 @@ try {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const { data: sessionShop } = await admin.rpc("current_shop");
+  assert(sessionShop?.id === shop.id, "current_shop no coincide con la demo.");
+
   // El privilegio de columna debe impedir cambiar el rol por la API, incluso
   // para un administrador: ese cambio solo lo hace la Edge Function.
   const escalate = await admin
@@ -144,7 +237,17 @@ try {
   assert(escalate.error, "La escalada de privilegios no está bloqueada.");
   console.log("✓ update de role bloqueado");
 
-  const { error: appointmentSelectError } = await admin
+  const { data: visibleServices, error: appointmentSelectError } = await admin
+    .from("services")
+    .select("id,shop_id");
+  if (appointmentSelectError) throw appointmentSelectError;
+  assert(
+    (visibleServices ?? []).every((row) => row.shop_id === shop.id),
+    "El panel ve servicios de otra barbería.",
+  );
+  console.log("✓ servicios acotados a la barbería");
+
+  const { error: appointmentSelectRelError } = await admin
     .from("appointments")
     .select(
       `*,
@@ -153,7 +256,7 @@ try {
        service:services(*)`,
     )
     .limit(1);
-  if (appointmentSelectError) throw appointmentSelectError;
+  if (appointmentSelectRelError) throw appointmentSelectRelError;
   console.log("✓ appointments relational select");
 
   const { error: clientSelectError } = await admin
@@ -172,13 +275,45 @@ try {
   if (clientSelectError) throw clientSelectError;
   console.log("✓ clients relational select");
 
-  const { error: publicBarberError } = await anon
-    .from("barbers_public")
-    .select("*");
-  if (publicBarberError) throw publicBarberError;
-  console.log("✓ barbers_public select");
+  // Aislamiento: se crea una barbería temporal con un servicio y se comprueba
+  // que la sesión de la barbería demo no pueda verlo.
+  const { data: tempShop, error: tempShopError } = await service
+    .from("shops")
+    .insert({
+      slug: tempSlug,
+      name: `Otra Barbería ${suffix}`,
+      active: true,
+    })
+    .select("id")
+    .single();
+  if (tempShopError) throw tempShopError;
+  created.tempShopId = tempShop.id;
+
+  const { data: tempService, error: tempServiceError } = await service
+    .from("services")
+    .insert({
+      shop_id: tempShop.id,
+      name: `Servicio temporal ${suffix}`,
+      duration_min: 30,
+      price_cents: 1000000,
+    })
+    .select("id")
+    .single();
+  if (tempServiceError) throw tempServiceError;
+  created.tempServiceId = tempService.id;
+
+  const { data: leakedServices, error: leakError } = await admin
+    .from("services")
+    .select("id,shop_id");
+  if (leakError) throw leakError;
+  assert(
+    (leakedServices ?? []).every((row) => row.shop_id !== tempShop.id),
+    "La sesión ve servicios de otra barbería.",
+  );
+  console.log("✓ aislamiento entre barberías");
 
   const staffSlot = await findSlot({
+    shopId: shop.id,
     serviceId: serviceRow.id,
     barberId: barber.id,
     timezone: shop.timezone,
@@ -186,6 +321,7 @@ try {
   const { data: existingClient, error: clientError } = await service
     .from("clients")
     .select("id")
+    .eq("shop_id", shop.id)
     .limit(1)
     .single();
   if (clientError) throw clientError;
@@ -225,7 +361,17 @@ try {
   if (edgeError) throw new Error(`admin-users create: ${edgeError.message}`);
   assert(edgeResult?.id, "admin-users no devolvió el usuario.");
   created.userId = edgeResult.id;
-  console.log("✓ admin-users create");
+
+  const { data: newProfile } = await service
+    .from("profiles")
+    .select("shop_id,role")
+    .eq("id", created.userId)
+    .single();
+  assert(
+    newProfile?.shop_id === shop.id && newProfile?.role === "BARBER",
+    "La cuenta creada quedó en otra barbería o con otro rol.",
+  );
+  console.log("✓ admin-users create acotado por barbería");
 
   const { data: edgeUpdate, error: edgeUpdateError } =
     await admin.functions.invoke("admin-users", {
@@ -245,8 +391,6 @@ try {
   assert(edgeUpdate?.id === created.userId, "admin-users update falló.");
   console.log("✓ admin-users update");
 
-  // `toggle` es la vía para reactivar una cuenta desactivada. Se usa el mismo
-  // usuario de prueba: el update anterior lo dejó inactivo.
   const { data: edgeToggle, error: edgeToggleError } =
     await admin.functions.invoke("admin-users", {
       body: { action: "toggle", id: created.userId, active: true },
@@ -259,17 +403,44 @@ try {
     "admin-users toggle falló.",
   );
   console.log("✓ admin-users toggle");
+
+  if (process.env.SMOKE_SEND_REMINDER === "true") {
+    // Solo se ejecuta a pedido: envía un correo real con Resend. El correo de
+    // prueba usa el dominio reservado `.test`.
+    const { error: reminderError } = await anon.functions.invoke(
+      "send-reminder",
+      { body: { appointmentId: publicId } },
+    );
+    if (reminderError) {
+      throw new Error(`send-reminder: ${reminderError.message}`);
+    }
+    const { data: reminded } = await service
+      .from("appointments")
+      .select("reminder_sent_at")
+      .eq("id", publicId)
+      .single();
+    assert(reminded?.reminder_sent_at, "send-reminder no marcó el envío.");
+    console.log("✓ send-reminder");
+  } else {
+    console.log("· send-reminder omitido (SMOKE_SEND_REMINDER != true)");
+  }
+
+  console.log("\nSmoke test completado.");
 } finally {
   if (created.appointments.length) {
-    await service
-      .from("appointments")
-      .delete()
-      .in("id", created.appointments);
+    await service.from("appointments").delete().in("id", created.appointments);
   }
   if (created.clientId) {
     await service.from("clients").delete().eq("id", created.clientId);
   }
+  if (created.tempServiceId) {
+    await service.from("services").delete().eq("id", created.tempServiceId);
+  }
+  if (created.tempShopId) {
+    await service.from("shops").delete().eq("id", created.tempShopId);
+  }
   if (created.userId) {
+    await service.from("profiles").delete().eq("id", created.userId);
     await service.auth.admin.deleteUser(created.userId);
   }
   await service

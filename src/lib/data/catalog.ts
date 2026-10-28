@@ -14,13 +14,17 @@ import { supabase } from "../supabase";
 import { fail, numberValue, nullableText, type Row } from "./rows";
 import { mapService } from "./mappers";
 
-export async function fetchServices(activeOnly = false): Promise<Service[]> {
+export async function fetchServices(
+  activeOnly = false,
+  shopId?: string,
+): Promise<Service[]> {
   let query = supabase
     .from("services")
     .select("*")
     .order("sort_order", { ascending: true });
 
   if (activeOnly) query = query.eq("active", true);
+  if (shopId) query = query.eq("shop_id", shopId);
 
   const { data, error } = await query;
   if (error) fail(error);

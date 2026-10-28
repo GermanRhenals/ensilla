@@ -24,15 +24,18 @@ type SlotRow = {
 };
 
 export async function getAvailability({
+  shopId,
   dayKey,
   serviceId,
   barberId,
 }: {
+  shopId: string;
   dayKey: string;
   serviceId: string;
   barberId?: string;
 }): Promise<AvailabilitySlot[]> {
   const { data, error } = await supabase.rpc("get_availability", {
+    p_shop_id: shopId,
     p_date: dayKey,
     p_service_id: serviceId,
     p_barber_id: barberId ?? null,

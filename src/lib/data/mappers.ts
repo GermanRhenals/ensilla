@@ -15,10 +15,19 @@ import type {
   AppointmentStatus,
   Barber,
   Client,
+  ConfirmationPayload,
   HaircutIdea,
   Profile,
   Service,
+  Shop,
+  ShopSummary,
 } from "../types";
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_LOCALE,
+  DEFAULT_TIMEZONE,
+  DEFAULT_WHATSAPP_COUNTRY_CODE,
+} from "../constants";
 import {
   boolValue,
   nullableText,
@@ -32,6 +41,7 @@ const DEFAULT_BARBER_COLOR = "#c2703d";
 export function mapProfile(row: Row): Profile {
   return {
     id: text(row.id),
+    shopId: text(row.shop_id),
     name: text(row.name),
     email: text(row.email),
     role: row.role === "ADMIN" ? "ADMIN" : "BARBER",
@@ -46,6 +56,7 @@ export function mapProfile(row: Row): Profile {
 export function mapBarber(row: Row): Barber {
   return {
     id: text(row.id),
+    shopId: text(row.shop_id),
     name: text(row.name),
     email: text(row.email),
     role: row.role === "ADMIN" ? "ADMIN" : "BARBER",
@@ -54,6 +65,73 @@ export function mapBarber(row: Row): Barber {
     phone: nullableText(row.phone),
     active: row.active === undefined ? true : boolValue(row.active),
     createdAt: text(row.created_at),
+  };
+}
+
+/**
+ * Normaliza una fila de `shops` o el JSON de `current_shop`/`get_public_shop`.
+ * Los defaults coinciden con la migración para que un campo faltante nunca
+ * rompa la agenda pública.
+ */
+export function mapShop(row: Row): Shop {
+  return {
+    id: text(row.id),
+    slug: text(row.slug),
+    name: text(row.name),
+    tagline: text(row.tagline),
+    description: nullableText(row.description),
+    address: nullableText(row.address),
+    phone: nullableText(row.phone),
+    whatsapp: nullableText(row.whatsapp),
+    email: nullableText(row.email),
+    instagram: nullableText(row.instagram),
+    currency: text(row.currency) || DEFAULT_CURRENCY,
+    timezone: text(row.timezone) || DEFAULT_TIMEZONE,
+    locale: text(row.locale) || DEFAULT_LOCALE,
+    whatsappCountryCode:
+      text(row.whatsapp_country_code) || DEFAULT_WHATSAPP_COUNTRY_CODE,
+    slotStepMin: numberValue(row.slot_step_min) || 15,
+    bufferMin: numberValue(row.buffer_min),
+    leadTimeMin: numberValue(row.lead_time_min),
+    bookingWindowDays: numberValue(row.booking_window_days) || 21,
+    active: row.active === undefined ? true : boolValue(row.active),
+  };
+}
+
+export function mapShopSummary(row: Row): ShopSummary {
+  return {
+    id: text(row.id),
+    slug: text(row.slug),
+    name: text(row.name),
+    tagline: text(row.tagline),
+    address: nullableText(row.address),
+    instagram: nullableText(row.instagram),
+  };
+}
+
+export function mapConfirmation(row: Row): ConfirmationPayload {
+  const client = (row.client ?? {}) as Row;
+  const service = (row.service ?? {}) as Row;
+  const barber = (row.barber ?? {}) as Row;
+  const shop = (row.shop ?? {}) as Row;
+
+  return {
+    id: text(row.id),
+    start: text(row.start_at),
+    end: text(row.end_at),
+    priceCents: numberValue(row.price_cents),
+    status: text(row.status) as AppointmentStatus,
+    client: {
+      name: text(client.name),
+      phone: text(client.phone),
+      hasEmail: boolValue(client.has_email),
+    },
+    service: {
+      name: text(service.name),
+      durationMin: numberValue(service.duration_min),
+    },
+    barber: { name: text(barber.name) },
+    shop: mapShop(shop),
   };
 }
 

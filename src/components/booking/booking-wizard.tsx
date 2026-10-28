@@ -58,6 +58,7 @@ const steps = [
 ];
 
 export function BookingWizard({
+  shopId,
   services,
   barbers,
   days,
@@ -65,6 +66,7 @@ export function BookingWizard({
   initialServiceId,
   initialBarberId,
 }: {
+  shopId: string;
   services: ServiceOption[];
   barbers: BarberOption[];
   days: DayOption[];
@@ -131,6 +133,7 @@ export function BookingWizard({
     let cancelled = false;
 
     getAvailability({
+      shopId,
       dayKey,
       serviceId,
       barberId: barberId === "any" ? undefined : barberId,
@@ -153,7 +156,7 @@ export function BookingWizard({
     return () => {
       cancelled = true;
     };
-  }, [step, serviceId, dayKey, barberId]);
+  }, [step, shopId, serviceId, dayKey, barberId]);
 
   const slots =
     slotResult?.key === slotRequestKey ? slotResult.slots : [];
@@ -187,6 +190,7 @@ export function BookingWizard({
     setPending(true);
 
     const result = await createPublicBooking({
+      shopId,
       serviceId,
       barberId: selectedSlot.barberId,
       start: selectedSlot.start,

@@ -2,8 +2,13 @@
 
 ## Resumen
 
-En-silla es un frontend estático con backend gestionado. El navegador habla
-directamente con la API de Supabase; no existe una capa intermedia propia.
+En-silla es un marketplace de barberías con frontend estático y backend
+gestionado. El visitante busca una barbería por nombre, reserva en ella y recibe
+un recordatorio por correo. Cada barbería opera con datos completamente
+aislados.
+
+El navegador habla directamente con la API de Supabase; no existe una capa
+intermedia propia.
 
 ```text
 ┌──────────────────────────────┐
@@ -19,6 +24,7 @@ directamente con la API de Supabase; no existe una capa intermedia propia.
 │  RPC        → reglas         │        └──────────────────────────┘
 │  Auth       → sesiones       │
 │  Edge Fn    → cuentas        │
+│  Edge Fn    → recordatorios  │────────▶ Resend (correo)
 └──────────────┬───────────────┘
                ▼
         Postgres 17
@@ -27,6 +33,22 @@ directamente con la API de Supabase; no existe una capa intermedia propia.
 La decisión central: **la seguridad y las reglas de negocio viven en la base de
 datos**. El frontend puede ser inspeccionado o manipulado por cualquier
 persona; Postgres no.
+
+## Multi-barbería
+
+- La tabla `shops` es la raíz del tenant. Tiene `slug` único, configuración de
+  agenda, contacto y estado `active`. El estado solo lo cambia la clave de
+  servicio: suspender una barbería corta el acceso de todo su equipo.
+- Todas las tablas operativas (`profiles`, `business_hours`, `services`,
+  `clients`, `appointments`, `time_off`, `haircut_ideas`, `notifications`)
+  llevan `shop_id`.
+- Las políticas RLS comparan `shop_id` con `current_shop_id()`. Un usuario
+  autenticado solo ve y escribe datos de su barbería; si la barbería está
+  inactiva, `current_shop_id()` devuelve `null` y el acceso se corta.
+- El sitio público nunca recibe un listado completo: busca por nombre o slug y
+  solo ve barberías activas.
+- No hay registro público de barberías. La provisión se hace con
+  `scripts/create-shop.mjs` y la clave de servicio.
 
 ## Capas del frontend
 
@@ -42,26 +64,32 @@ Regla práctica: una página puede importar de `lib` y de `components`, pero no
 debe construir consultas de tablas. Si necesita un dato nuevo, se agrega una
 función en `src/lib/data`.
 
-## Flujo de una reserva pública
+## Flujo público
 
 ```text
-/reservar
-  ├─ fetchShop()            → configuración de la barbería
-  ├─ fetchPublicBarbers()   → vista barbers_public (sin datos privados)
-  ├─ fetchBusinessHours()   → horario semanal
-  └─ fetchServices(true)    → catálogo activo
+/
+  └─ ShopSearch → search_shops(consulta)
+        │  mínimo 2 caracteres, solo barberías activas
+        ▼
+/reservar?barberia=<slug>
+  ├─ fetchShopBySlug(slug)     → RPC get_public_shop
+  ├─ fetchPublicBarbers(shop.id) → vista barbers_public
+  ├─ fetchBusinessHours(shop.id) → horario semanal
+  └─ fetchServices(true, shop.id) → catálogo activo
         │
         ▼  elección de servicio, barbero y día
-  getAvailability()  ──RPC──▶  get_availability(fecha, servicio, barbero)
-        │                     calcula huecos reales en Postgres
+  getAvailability() ──RPC──▶ get_availability(p_shop_id, fecha, servicio, barbero)
+        │                    calcula huecos reales en Postgres
         ▼
-  createPublicBooking() ─RPC▶ create_public_booking(...)
-        │                     valida, bloquea el día con advisory lock,
-        │                     crea o reutiliza cliente, inserta turno,
-        │                     crea notificación
+  createPublicBooking() ─RPC▶ create_public_booking(p_shop_id, ...)
+        │                    valida, bloquea el día con advisory lock,
+        │                    crea o reutiliza cliente dentro de la barbería,
+        │                    inserta turno y notificación
         ▼
 /reservar/confirmacion?id=<uuid>
-  └─ fetchConfirmation() ─RPC▶ get_booking_confirmation(uuid)
+  ├─ fetchConfirmation() ─RPC▶ get_booking_confirmation(uuid)
+  ├─ saveBookingEmail()  ─RPC▶ set_booking_email(uuid, correo)
+  └─ sendBookingReminder() ─Edge Function▶ send-reminder → Resend
 ```
 
 Detalles importantes:
@@ -72,8 +100,9 @@ Detalles importantes:
   la restricción de exclusión de Postgres. Dos personas que reservan a la vez
   no pueden superponerse.
 - El enlace de confirmación contiene un UUID no adivinable que actúa como
-  credencial temporal. No se listan reservas ni se permite modificarlas desde
-  ese enlace.
+  credencial. No se listan reservas ni se permite modificarlas desde ese enlace.
+- El correo es opcional y solo se guarda después de confirmar. La confirmación
+  pública nunca devuelve el correo: apenas indica `has_email`.
 - El archivo `.ics` se genera en el navegador (`src/lib/ics.ts`): no hay API ni
   almacenamiento de archivos.
 
@@ -88,19 +117,20 @@ Detalles importantes:
         │  perfil inactivo o inexistente → cierra sesión
         ▼
 /panel
+  ├─ fetchShop()   RPC current_shop → barbería del perfil
   ├─ Agenda        getAgenda(fecha, barbero)
-  ├─ Citas         fetchAppointments + detalle
+  ├─ Citas         fetchAppointments + detalle + recordatorio real
   ├─ Clientes      búsqueda en servidor + ficha con historial
-  ├─ Servicios     catálogo
+  ├─ Servicios     catálogo de la barbería
   ├─ Estadísticas  getOverview(rango, barbero)
-  ├─ Ajustes       shop_setting + business_hours (solo ADMIN)
+  ├─ Ajustes       shops + business_hours (solo ADMIN)
   └─ Equipo        perfiles + Edge Function admin-users (solo ADMIN)
 ```
 
 El panel es una aplicación de cliente: no hay renderizado en servidor ni
 sesiones del lado del servidor. La autorización efectiva la aplica RLS en cada
-consulta, de modo que un barbero no puede leer datos de otro barbero aunque
-manipule el HTML.
+consulta, de modo que un barbero no puede leer datos de otra barbería ni de otro
+barbero aunque manipule el HTML.
 
 ## Mapa de módulos
 
@@ -124,11 +154,11 @@ src/lib/
 src/lib/data/
   rows.ts           Helpers de normalización, paginación y errores.
   mappers.ts        snake_case de Postgres → camelCase del dominio.
-  shop.ts           shop_setting y business_hours.
+  shop.ts           shops, búsqueda pública, horario y ajustes.
   catalog.ts        services.
   profiles.ts       profiles, barbers_public y Edge Function.
   clients.ts        clients, historial e ideas.
-  appointments.ts   appointments y confirmación pública.
+  appointments.ts   appointments, confirmación, correo y recordatorio.
   notifications.ts  notifications.
   index.ts          Barrel público.
 ```
@@ -149,7 +179,24 @@ src/lib/data/
 - RLS decide filas; los privilegios por columna deciden campos; las RPC
   encapsulan operaciones que no deben hacerse con un `insert` directo.
 - Las funciones internas (`booking_validate`, `handle_new_user`,
-  `set_updated_at`) no son ejecutables desde la API.
+  `set_updated_at`, `normalize_phone`) no son ejecutables desde la API.
+- El aislamiento entre barberías se aplica en la base, no en el filtro de la
+  interfaz.
+
+### Búsqueda por nombre, no directorio
+
+- El visitante conoce el nombre de su barbería. `search_shops` exige al menos
+  dos caracteres y devuelve como máximo 12 resultados activos.
+- No existe una ruta que liste todas las barberías: reduce la enumeración y
+  mantiene el foco del producto.
+
+### Recordatorio con Resend
+
+- La Edge Function `send-reminder` recibe el UUID de la reserva, lee el correo
+  con la clave de servicio, envía con Resend y marca `reminder_sent_at`.
+- El navegador nunca recibe el correo del cliente ni la clave de Resend.
+- Tiene un enfriamiento de dos minutos para que el botón no se convierta en un
+  amplificador de spam.
 
 ### Cliente de Supabase único
 
@@ -165,9 +212,9 @@ src/lib/data/
 
 ### Idioma y zona horaria
 
-- Los textos están en español y las fechas se formatean con la zona de la
+- Los textos están en español y las fechas se formatean con la zona de cada
   barbería. El servidor no formatea fechas para el usuario.
-- Cambiar la zona horaria de la barbería cambia la interpretación de los
+- Cambiar la zona horaria de una barbería cambia la interpretación de sus
   horarios de atención, no los instantes ya guardados.
 
 ## Manejo de errores
@@ -179,6 +226,7 @@ src/lib/data/
 | La ruta no existe | `not-found.tsx` (404 estático). |
 | Error de render | `error.tsx` ofrece reintentar o volver al inicio. |
 | Sesión sin perfil activo | `AuthProvider` cierra la sesión y el panel redirige a `/login`. |
+| Slug inexistente en `/reservar` | Se muestra el buscador para retomar el flujo. |
 
 ## Rendimiento
 
@@ -194,6 +242,6 @@ src/lib/data/
 - Servidor propio, contenedores, balanceadores.
 - API intermedia o BFF.
 - ORM o capa de migraciones distinta de Supabase CLI.
-- Servicio de correo o SMS: las notificaciones son internas y WhatsApp es un
+- SMS ni notificaciones push: el recordatorio es por correo y WhatsApp es un
   enlace.
 - Almacenamiento de archivos: no se suben imágenes ni documentos.

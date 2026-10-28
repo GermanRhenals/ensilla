@@ -1,6 +1,7 @@
 # 05 · Desarrollo
 
-Guía para cambiar el código sin romper reglas de negocio ni la seguridad.
+Guía para cambiar el código sin romper reglas de negocio, el aislamiento entre
+barberías ni la seguridad.
 
 ## Preparación
 
@@ -25,6 +26,13 @@ npx supabase db push      # contra el proyecto de desarrollo
 npm run smoke:supabase    # contra el proyecto de desarrollo
 ```
 
+Si el cambio toca recordatorios, desplegar la función y probar el envío real:
+
+```bash
+npx supabase functions deploy send-reminder
+SMOKE_SEND_REMINDER=true npm run smoke:supabase
+```
+
 ## Estructura mental
 
 - **Página**: compone la pantalla, maneja estado de formulario y navegación.
@@ -33,6 +41,8 @@ npm run smoke:supabase    # contra el proyecto de desarrollo
   fechas, formato).
 - **Migración**: reglas que deben cumplirse aunque alguien llame a la API por
   fuera de la aplicación.
+- **Barbería (`shop`)**: raíz del tenant. Todo dato operativo cuelga de un
+  `shop_id`.
 
 ## Reglas para la capa de datos
 
@@ -46,6 +56,30 @@ npm run smoke:supabase    # contra el proyecto de desarrollo
 6. Si la consulta puede superar 1000 filas, usar `selectAllPages` con `order`
    estable.
 7. Si se agrega una columna, actualizar el mapper y el tipo en `types.ts`.
+
+### Barbería en la capa de datos
+
+Hay tres formas de resolver una barbería y no son intercambiables:
+
+| Contexto | Función | Origen |
+| --- | --- | --- |
+| Panel autenticado | `fetchShop()` | RPC `current_shop`, deduce el `shop_id` del perfil |
+| Sitio público por enlace | `fetchShopBySlug(slug)` | RPC `get_public_shop`, solo barberías activas |
+| Buscador de portada | `searchShops(query)` | RPC `search_shops`, mínimo 2 caracteres |
+
+Reglas:
+
+- **Nunca** tomar el `shop_id` de un query param para escribir. En el panel se
+  deduce del perfil; en el sitio público se envía a las RPC, que vuelven a
+  validar que el servicio y el barbero pertenezcan a esa barbería.
+- Las consultas a tablas del tenant dentro del panel **no** necesitan filtrar
+  por `shop_id`: RLS ya lo hace con `current_shop_id()`. Agregar el filtro es
+  opcional para legibilidad, no un mecanismo de seguridad.
+- El sitio público **sí** debe filtrar por `shop_id` al leer `services`,
+  `barbers_public` y `business_hours`: `anon` puede ver datos públicos de
+  cualquier barbería activa.
+- `FALLBACK_SHOP` tiene `id` vacío a propósito. Si una vista va a escribir, debe
+  esperar a que la barbería real esté cargada.
 
 Ejemplo de función nueva:
 
@@ -71,6 +105,26 @@ export async function fetchSomething(id: string) {
 - Después de una mutación exitosa, llamar `reload()` o navegar.
 - No calcular disponibilidad ni precios en el navegador: pedirlos a la RPC.
 - No leer `clients` desde el sitio público: no hay política para `anon`.
+- El correo del cliente solo se muestra como `hasEmail`. No agregarlo a
+  payloads públicos, logs ni analítica.
+
+## Flujo público
+
+```text
+/                          Portada con buscador por nombre
+/reservar?barberia=<slug>  Servicio → barbero → día → hora → datos
+/reservar/confirmacion?id=<uuid>
+```
+
+- Sin `?barberia=`, `/reservar` muestra el buscador en lugar de un error.
+- Un slug inexistente o una barbería inactiva se tratan igual: no se revela si
+  existió.
+- La confirmación usa el UUID como credencial. No listar reservas ni permitir
+  cambios de horario desde ese enlace.
+- El correo se agrega después de confirmar con `set_booking_email`. El botón
+  "Enviar recordatorio" llama a la Edge Function `send-reminder`.
+- "Cerrar" vuelve a la portada; el enlace de la barbería queda en el pie para
+  reservar de nuevo.
 
 ## Reglas para SQL
 
@@ -84,6 +138,34 @@ export async function fetchSomething(id: string) {
    Postgres concede a `PUBLIC`.
 7. Si se agrega una columna sensible, evaluar privilegios por columna.
 8. Probar la migración sobre una base con datos, no solo vacía.
+
+### Una tabla nueva del tenant
+
+1. Agregar `shop_id uuid not null default public.current_shop_id() references
+   public.shops(id) on delete restrict`.
+2. Crear índice por `shop_id` y por las columnas de búsqueda habituales.
+3. `enable row level security`.
+4. Política de `select` que compare `shop_id = public.current_shop_id()`.
+5. Política de escritura solo para `is_staff()` o `is_admin()` según el caso.
+6. Si el sitio público debe leerla, agregar una política acotada a
+   `is_active_shop(shop_id)` y una proyección con los datos mínimos.
+7. Revisar los `grant` de tabla y de columna.
+
+El `default current_shop_id()` permite que el panel inserte sin enviar
+`shop_id`; el valor se resuelve en el servidor y no se puede falsificar.
+
+### Una RPC nueva
+
+1. Escribirla como `security definer` con `set search_path = public`.
+2. Si es pública, recibir `p_shop_id` y validar que barbería, servicio, barbero y
+   turno pertenezcan al mismo tenant.
+3. Si es del panel, deducir la barbería con `current_shop_id()` y no aceptarla
+   como parámetro.
+4. Revocar `execute` de `public`, `anon` y `authenticated`, y otorgarlo solo a
+   quien corresponda.
+5. Consumirla desde `src/lib/booking.ts`, `src/lib/availability.ts` o un módulo
+   de datos.
+6. Documentar el contrato en `docs/02-MODELO-DE-DATOS.md`.
 
 ## Cómo agregar una funcionalidad
 
@@ -105,17 +187,58 @@ export async function fetchSomething(id: string) {
 4. Usar `Flash` para errores y estados vacíos con `EmptyState`.
 5. Agregar el enlace en `src/components/panel/panel-nav.tsx`.
 6. Proteger la vista por rol en la interfaz **y** por RLS en la base.
+7. No hardcodear la barbería: usar `fetchShop()` y su `id`, `timezone`,
+   `currency` y `locale`.
 
 ### Una operación con reglas propias
 
 Si la operación no puede expresarse con `insert`/`update` seguros:
 
 1. Escribir una RPC `security definer` en una migración.
-2. Validar rol, datos y estado dentro de la función.
+2. Validar rol, datos, estado y pertenencia a la barbería dentro de la función.
 3. Revocar `execute` de `public`, `anon` y `authenticated`, y otorgarlo solo a
    quien corresponda.
-4. Consumirla desde `src/lib/booking.ts` o un módulo de dominio.
+4. Consumirla desde `src/lib/booking.ts`, `src/lib/availability.ts` o un módulo
+   de datos.
 5. Documentar el contrato en `docs/02-MODELO-DE-DATOS.md`.
+
+## Provisión de barberías
+
+No hay registro público. Para crear una barbería en desarrollo:
+
+```bash
+npm run db:create-shop -- \
+  --slug barberia-del-parque \
+  --name "Barbería del Parque" \
+  --admin-name "Nombre Apellido" \
+  --admin-email admin@barberia.com \
+  --admin-password "una-clave-larga"
+```
+
+El script:
+
+- Hace upsert por `slug`; si ya existe, exige `--update`.
+- Con `--update` solo escribe los campos enviados.
+- Crea el horario semanal por defecto si la barbería no tiene ninguno.
+- Crea el usuario de Auth con `shop_id` en `user_metadata` y deja su perfil como
+  `ADMIN` activo.
+
+Para probar aislamiento, crear una segunda barbería con otro slug y otro
+administrador, y verificar que ninguna sesión vea datos de la otra. El smoke test
+hace esta comprobación con una barbería temporal que luego elimina.
+
+## Recordatorios por correo
+
+- La Edge Function `send-reminder` recibe `{ appointmentId }`, lee el correo con
+  la clave de servicio y envía con Resend.
+- Secretos: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y opcional
+  `REMINDER_FROM_NAME`. Se configuran con `npx supabase secrets set`.
+- El remitente debe pertenecer a un dominio verificado en Resend.
+- El enfriamiento de 2 minutos vive en la función; no duplicar esa regla en el
+  navegador.
+- Nunca devolver el correo del cliente ni la clave de Resend.
+- Para desarrollo sin dominio verificado, usar el remitente de pruebas de Resend
+  y un correo propio.
 
 ## Comentarios
 
@@ -152,14 +275,20 @@ Ejemplo:
 
 No hay suite automatizada. Antes de publicar, recorrer:
 
-1. `/` carga con datos reales de la barbería.
-2. `/reservar` permite elegir servicio, barbero, día y horario.
-3. La reserva aparece en `/reservar/confirmacion?id=...`.
-4. El turno aparece en la agenda del panel.
-5. El panel permite cambiar estado y notas del turno.
-6. Un usuario `BARBER` no ve Ajustes, Equipo ni Servicios.
-7. Un usuario desactivado no puede entrar.
-8. La búsqueda de clientes encuentra por nombre y por teléfono.
+1. `/` carga y el buscador no devuelve nada con una sola letra.
+2. Buscar una barbería por nombre o slug muestra el resultado correcto.
+3. `/reservar?barberia=<slug>` permite elegir servicio, barbero, día y horario.
+4. La reserva aparece en `/reservar/confirmacion?id=...` con el nombre de la
+   barbería y el mensaje "Se ha confirmado tu reserva."
+5. Agregar un correo habilita "Enviar recordatorio"; el correo llega a la
+   bandeja.
+6. "Cerrar" vuelve a la portada.
+7. El turno aparece en la agenda del panel de **esa** barbería.
+8. Otra barbería no ve el turno, el cliente ni el servicio.
+9. El panel permite cambiar estado y notas del turno.
+10. Un usuario `BARBER` no ve Ajustes, Equipo ni Servicios.
+11. Un usuario desactivado no puede entrar.
+12. La búsqueda de clientes encuentra por nombre y por teléfono.
 
 El smoke test cubre el circuito de datos:
 
@@ -167,20 +296,25 @@ El smoke test cubre el circuito de datos:
 npm run smoke:supabase
 ```
 
-Incluye disponibilidad, alta pública, confirmación, alta desde panel, creación
-de usuario por Edge Function y bloqueo de escalada de privilegios.
+Incluye búsqueda pública, barbería por slug, disponibilidad, alta pública,
+confirmación sin datos internos, correo posterior, alta desde el panel,
+aislamiento entre barberías, creación de usuario por Edge Function y bloqueo de
+escalada de privilegios. El envío real de correo queda opt-in con
+`SMOKE_SEND_REMINDER=true`.
 
 ## Errores comunes
 
 | Error | Causa | Solución |
 | --- | --- | --- |
 | `permission denied for table profiles` | Falta el privilegio de columna | Revisar el `grant` de la migración |
-| `new row violates row-level security policy` | Política ausente o rol incorrecto | Revisar RLS y `is_staff()` |
+| `new row violates row-level security policy` | Política ausente, perfil inactivo o `shop_id` distinto | Revisar RLS, `current_shop_id()` y el perfil |
 | `column ... does not exist` | Migración no aplicada | `npx supabase db push` |
 | `JWT expired` | Sesión vencida | Volver a iniciar sesión |
 | `useSearchParams() should be wrapped in a suspense boundary` | Falta `<Suspense>` | Envolver la vista |
 | El build falla por `window` | Código de navegador en un componente de servidor | Agregar `"use client"` |
 | `FunctionsHttpError` al crear usuario | Falta desplegar la Edge Function | `npx supabase functions deploy admin-users` |
+| La búsqueda no devuelve la barbería | Menos de 2 caracteres o barbería inactiva | Revisar `shops.active` y el término |
+| `send-reminder` responde 500 | Faltan secretos de Resend o el dominio no está verificado | Configurar secretos y revisar Resend |
 
 ## Pull requests
 

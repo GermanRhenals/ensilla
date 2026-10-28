@@ -1,13 +1,14 @@
 /**
- * Configuración de la barbería y horario de atención.
+ * Barberías y horario de atención.
  *
  * RESPONSABILIDAD
- * Leer y escribir los ajustes globales (`shop_setting`) y el horario semanal
- * (`business_hours`), únicos registros que definen zona horaria, moneda, país
- * de WhatsApp y reglas de agenda.
+ * - Resolver la barbería del usuario autenticado (`current_shop`).
+ * - Resolver una barbería pública por slug y buscarla por nombre.
+ * - Leer el horario semanal y guardar los ajustes desde el panel.
  *
  * SEGURIDAD
- * La escritura está protegida por RLS: solo un administrador puede guardar.
+ * La tabla `shops` está protegida por RLS. El slug no se puede cambiar desde
+ * el navegador y la creación de barberías pasa por un script con service role.
  */
 
 import {
@@ -16,22 +17,24 @@ import {
   DEFAULT_TIMEZONE,
   DEFAULT_WHATSAPP_COUNTRY_CODE,
 } from "../constants";
-import type { BusinessHour, Shop } from "../types";
+import type { BusinessHour, Shop, ShopSummary } from "../types";
 import { supabase } from "../supabase";
 import {
   boolValue,
   fail,
-  nullableText,
   numberValue,
   text,
   type Row,
 } from "./rows";
+import { mapShop, mapShopSummary } from "./mappers";
 
 /**
- * Valores usados mientras cargan los ajustes o si la fila todavía no existe.
- * Deben coincidir con los defaults de la migración inicial.
+ * Valores usados mientras cargan los ajustes o si todavía no hay barbería.
+ * Un `id` vacío significa "sin barbería resuelta" y nunca se usa para escribir.
  */
 export const FALLBACK_SHOP: Shop = {
+  id: "",
+  slug: "",
   name: "En-silla Barbershop",
   tagline: "Cortes con memoria",
   description: null,
@@ -48,45 +51,62 @@ export const FALLBACK_SHOP: Shop = {
   bufferMin: 10,
   leadTimeMin: 60,
   bookingWindowDays: 21,
+  active: true,
 };
 
+/** Barbería del usuario autenticado. La RPC respeta la RLS del perfil. */
 export async function fetchShop(): Promise<Shop> {
-  const { data, error } = await supabase
-    .from("shop_setting")
-    .select("*")
-    .eq("id", 1)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("current_shop");
 
   if (error) fail(error);
   if (!data) return FALLBACK_SHOP;
 
-  return {
-    name: text(data.name) || FALLBACK_SHOP.name,
-    tagline: text(data.tagline) || FALLBACK_SHOP.tagline,
-    description: nullableText(data.description),
-    address: nullableText(data.address),
-    phone: nullableText(data.phone),
-    whatsapp: nullableText(data.whatsapp),
-    email: nullableText(data.email),
-    instagram: nullableText(data.instagram),
-    currency: text(data.currency) || DEFAULT_CURRENCY,
-    timezone: text(data.timezone) || DEFAULT_TIMEZONE,
-    locale: text(data.locale) || DEFAULT_LOCALE,
-    whatsappCountryCode:
-      text(data.whatsapp_country_code) || DEFAULT_WHATSAPP_COUNTRY_CODE,
-    slotStepMin: numberValue(data.slot_step_min),
-    bufferMin: numberValue(data.buffer_min),
-    leadTimeMin: numberValue(data.lead_time_min),
-    bookingWindowDays: numberValue(data.booking_window_days),
-  };
+  return mapShop(data as Row);
 }
 
-export async function fetchBusinessHours(): Promise<BusinessHour[]> {
-  const { data, error } = await supabase
+/** Barbería pública por slug. Devuelve null si no existe o está inactiva. */
+export async function fetchShopBySlug(slug: string): Promise<Shop | null> {
+  const clean = slug.trim();
+  if (!clean) return null;
+
+  const { data, error } = await supabase.rpc("get_public_shop", {
+    p_slug: clean,
+  });
+
+  if (error) fail(error);
+  return data ? mapShop(data as Row) : null;
+}
+
+/**
+ * Búsqueda pública por nombre o slug.
+ *
+ * La RPC exige al menos dos caracteres: el visitante busca una barbería que ya
+ * conoce, no recorre un directorio completo.
+ */
+export async function searchShops(query: string): Promise<ShopSummary[]> {
+  const clean = query.trim();
+  if (clean.length < 2) return [];
+
+  const { data, error } = await supabase.rpc("search_shops", {
+    p_query: clean,
+  });
+
+  if (error) fail(error);
+  return ((data ?? []) as Row[]).map(mapShopSummary);
+}
+
+/** Horario semanal. En el panel se omite `shopId` y la RLS lo acota. */
+export async function fetchBusinessHours(
+  shopId?: string,
+): Promise<BusinessHour[]> {
+  let request = supabase
     .from("business_hours")
     .select("*")
     .order("weekday", { ascending: true });
 
+  if (shopId) request = request.eq("shop_id", shopId);
+
+  const { data, error } = await request;
   if (error) fail(error);
 
   return ((data ?? []) as Row[]).map((row) => ({
@@ -98,21 +118,26 @@ export async function fetchBusinessHours(): Promise<BusinessHour[]> {
   }));
 }
 
-/** Actualiza los ajustes globales. Solo administradores (RLS). */
-export async function updateShop(input: Record<string, unknown>) {
+/** Actualiza los ajustes de una barbería. Solo administradores (RLS). */
+export async function updateShop(
+  shopId: string,
+  input: Record<string, unknown>,
+) {
   const { error } = await supabase
-    .from("shop_setting")
+    .from("shops")
     .update(input)
-    .eq("id", 1);
+    .eq("id", shopId);
 
   if (error) fail(error);
 }
 
 /**
  * Guarda el horario semanal completo.
- * Se usa `upsert` porque cada día es una fila identificada por `weekday`.
+ * La unicidad es `(shop_id, weekday)`, así que cada barbería mantiene su
+ * propio calendario sin pisar el de las demás.
  */
 export async function updateHours(
+  shopId: string,
   rows: {
     weekday: number;
     openMinute: number;
@@ -122,12 +147,13 @@ export async function updateHours(
 ) {
   const { error } = await supabase.from("business_hours").upsert(
     rows.map((row) => ({
+      shop_id: shopId,
       weekday: row.weekday,
       open_minute: row.openMinute,
       close_minute: row.closeMinute,
       active: row.active,
     })),
-    { onConflict: "weekday" },
+    { onConflict: "shop_id,weekday" },
   );
 
   if (error) fail(error);

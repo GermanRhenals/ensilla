@@ -2,6 +2,7 @@ export type AppRole = "ADMIN" | "BARBER";
 
 export type Profile = {
   id: string;
+  shopId: string;
   name: string;
   email: string;
   role: AppRole;
@@ -13,6 +14,8 @@ export type Profile = {
 };
 
 export type Shop = {
+  id: string;
+  slug: string;
   name: string;
   tagline: string;
   description: string | null;
@@ -29,6 +32,20 @@ export type Shop = {
   bufferMin: number;
   leadTimeMin: number;
   bookingWindowDays: number;
+  active: boolean;
+};
+
+/**
+ * Barbería que devuelve la búsqueda pública. Es un subconjunto de `Shop`:
+ * la portada no necesita reglas de agenda ni datos internos.
+ */
+export type ShopSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  address: string | null;
+  instagram: string | null;
 };
 
 export type BusinessHour = {
@@ -41,6 +58,7 @@ export type BusinessHour = {
 
 export type Barber = {
   id: string;
+  shopId: string;
   name: string;
   email: string;
   role: AppRole;
@@ -142,15 +160,21 @@ export type BookingResult =
   | { ok: true; appointmentId: string }
   | { ok: false; error: string };
 
+/**
+ * Datos de la página de confirmación. La RPC entrega `snake_case` y el mapper
+ * los traduce. El correo del cliente no se expone: solo `hasEmail`, que es lo
+ * que la pantalla necesita para ofrecer el recordatorio.
+ */
 export type ConfirmationPayload = {
   id: string;
-  start_at: string;
-  end_at: string;
-  price_cents: number;
+  start: string;
+  end: string;
+  priceCents: number;
   status: AppointmentStatus;
-  client: { name: string; phone: string };
-  service: { name: string; duration_min: number };
-  barber: { name: string; phone: string | null };
+  client: { name: string; phone: string; hasEmail: boolean };
+  service: { name: string; durationMin: number };
+  barber: { name: string };
+  shop: Shop;
 };
 
 export type AvailabilitySlot = {

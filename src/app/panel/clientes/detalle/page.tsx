@@ -25,8 +25,8 @@ import { normalizePhone } from "@/lib/phone";
 import {
   addIdea,
   deleteIdea,
+  fetchActiveBarbers,
   fetchClientDetail,
-  fetchPublicBarbers,
   fetchShop,
   updateClientRecord,
 } from "@/lib/data";
@@ -60,7 +60,7 @@ function ClientDetailContent() {
     if (!id) return null;
     const [shop, barbers, client] = await Promise.all([
       fetchShop(),
-      fetchPublicBarbers(),
+      fetchActiveBarbers(),
       fetchClientDetail(id),
     ]);
     return { shop, barbers, client };

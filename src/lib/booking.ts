@@ -4,6 +4,7 @@ import type { BookingResult } from "./types";
 export type { BookingResult };
 
 export type PublicBookingInput = {
+  shopId: string;
   serviceId: string;
   barberId: string;
   start: string;
@@ -32,6 +33,7 @@ export async function createPublicBooking(
   input: PublicBookingInput,
 ): Promise<BookingResult> {
   const { data, error } = await supabase.rpc("create_public_booking", {
+    p_shop_id: input.shopId,
     p_service_id: input.serviceId,
     p_barber_id: input.barberId,
     p_start: input.start,

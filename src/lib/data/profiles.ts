@@ -31,12 +31,29 @@ async function invokeAdminUsers(body: Record<string, unknown>) {
   if (data?.error) throw new Error(String(data.error));
 }
 
-/** Equipo visible en el sitio público. La vista ya filtra activos. */
-export async function fetchPublicBarbers(): Promise<Barber[]> {
+/**
+ * Equipo visible en el sitio público de una barbería.
+ * La vista ya filtra perfiles activos; el `shopId` es obligatorio para no
+ * mezclar equipos de barberías distintas.
+ */
+export async function fetchPublicBarbers(shopId: string): Promise<Barber[]> {
   const { data, error } = await supabase
     .from("barbers_public")
     .select("*")
+    .eq("shop_id", shopId)
     .order("role", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) fail(error);
+  return ((data ?? []) as Row[]).map(mapBarber);
+}
+
+/** Plantel activo de la barbería actual, para selectores del panel. */
+export async function fetchActiveBarbers(): Promise<Barber[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("active", true)
     .order("name", { ascending: true });
 
   if (error) fail(error);
