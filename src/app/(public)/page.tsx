@@ -15,7 +15,6 @@ import {
   Star,
   Users,
 } from "lucide-react";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   FALLBACK_SHOP,
   fetchPublicBarbers,
@@ -77,6 +76,12 @@ export default function LandingPage() {
   const barbers = data?.barbers ?? [];
   const services = data?.services ?? [];
 
+  // La tarjeta del hero muestra datos reales del catálogo, nunca contenido
+  // inventado: si todavía no hay servicios, se explica cómo empezar.
+  const featuredService = services[0] ?? null;
+  const featuredBarber = barbers[0] ?? null;
+  const locationLabel = shop.address?.split(",").slice(-1)[0]?.trim() ?? "";
+
   return (
     <>
       <section className="relative overflow-hidden bg-ink text-cream">
@@ -92,7 +97,7 @@ export default function LandingPage() {
           <div className="animate-rise">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-cream/70">
               <span className="size-1.5 rounded-full bg-amber" />
-              Agenda online · {shop.address?.split(",")[1]?.trim() ?? "Bogotá"}
+              Agenda online{locationLabel ? ` · ${locationLabel}` : ""}
             </span>
 
             <h1 className="mt-6 font-display text-5xl leading-[0.98] tracking-tight sm:text-6xl lg:text-7xl">
@@ -142,53 +147,71 @@ export default function LandingPage() {
               <div className="flex items-center justify-between border-b border-line px-6 py-5">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">
-                    Próximo turno
+                    Reservá en línea
                   </p>
                   <p className="mt-1 font-display text-2xl font-semibold">
-                    Hoy · 18:30
+                    {featuredService ? featuredService.name : "Tu próximo corte"}
                   </p>
                 </div>
-                <StatusBadge status="CONFIRMED" />
+                <Scissors className="size-5 text-copper" />
               </div>
 
               <div className="space-y-4 px-6 py-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold">Corte + barba</p>
-                    <p className="text-xs text-stone-500">75 minutos · con Bruno</p>
+                {featuredService ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {featuredService.name}
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        {featuredService.durationMin} minutos
+                        {featuredBarber ? ` · con ${featuredBarber.name}` : ""}
+                      </p>
+                    </div>
+                    <p className="font-display text-xl font-semibold">
+                      {formatMoney(
+                        featuredService.priceCents,
+                        shop.currency,
+                        shop.locale,
+                      )}
+                    </p>
                   </div>
-                  <p className="font-display text-xl font-semibold">
-                    {formatMoney(5500000, shop.currency, shop.locale)}
+                ) : (
+                  <p className="text-sm text-stone-500">
+                    El catálogo se está configurando. Escribinos y coordinamos
+                    tu turno.
                   </p>
-                </div>
+                )}
 
                 <div className="flex items-center gap-3 rounded-xl bg-sand/70 p-3">
                   <span className="flex size-10 items-center justify-center rounded-full bg-ink text-sm font-semibold text-cream">
-                    AM
+                    {featuredBarber ? (
+                      initials(featuredBarber.name)
+                    ) : (
+                      <Scissors className="size-4" />
+                    )}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">Andrés Mejía</p>
+                    <p className="text-sm font-medium">
+                      {featuredBarber ? featuredBarber.name : "Equipo En-silla"}
+                    </p>
                     <p className="truncate text-xs text-stone-500">
-                      Ondulado medio · fade bajo con textura
+                      {featuredBarber?.bio ??
+                        "Elegí barbero y horario en pocos pasos."}
                     </p>
                   </div>
                   <Sparkles className="size-4 text-copper" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="rounded-lg border border-line px-3 py-2">
-                    <p className="text-stone-400">Producto</p>
-                    <p className="mt-0.5 font-medium">Pomada mate</p>
-                  </div>
-                  <div className="rounded-lg border border-line px-3 py-2">
-                    <p className="text-stone-400">Idea guardada</p>
-                    <p className="mt-0.5 font-medium">Textura despeinada</p>
-                  </div>
-                </div>
-
                 <div className="flex items-center justify-between border-t border-dashed border-line pt-4 text-xs text-stone-500">
-                  <span>En-silla Barbershop</span>
-                  <span className="font-medium text-sage">Confirmado</span>
+                  <span>{shop.name}</span>
+                  <span className="font-medium text-sage">
+                    {barbers.length > 0
+                      ? `${barbers.length} ${
+                          barbers.length === 1 ? "barbero" : "barberos"
+                        } disponibles`
+                      : "Reserva online"}
+                  </span>
                 </div>
               </div>
             </div>

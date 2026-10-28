@@ -3,7 +3,7 @@ import { AtSign, Clock, Mail, MapPin, Phone } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
 import { WEEKDAY_LABELS } from "@/lib/constants";
 import { minutesToTime } from "@/lib/datetime";
-import type { Shop } from "@/lib/shop";
+import type { Shop } from "@/lib/types";
 
 type Hour = {
   weekday: number;

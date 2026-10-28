@@ -28,14 +28,6 @@ export type StaffBookingInput = {
   source?: string;
 };
 
-export function normalizePhone(input: string) {
-  let digits = input.replace(/\D/g, "");
-  if (digits.startsWith("54")) digits = digits.slice(2);
-  if (digits.startsWith("9") && digits.length === 11) digits = digits.slice(1);
-  if (digits.startsWith("0")) digits = digits.slice(1);
-  return digits;
-}
-
 export async function createPublicBooking(
   input: PublicBookingInput,
 ): Promise<BookingResult> {

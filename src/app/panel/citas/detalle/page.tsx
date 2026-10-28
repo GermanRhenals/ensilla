@@ -66,7 +66,7 @@ function AppointmentDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!id) return null;
     const [shop, appointment] = await Promise.all([
       fetchShop(),
@@ -75,6 +75,7 @@ function AppointmentDetailContent() {
     return { shop, appointment };
   }, `appointment-${id}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (!data.appointment) {
     return (

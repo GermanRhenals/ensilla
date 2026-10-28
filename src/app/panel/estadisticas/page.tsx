@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { useAuth } from "@/lib/auth-context";
+import { Flash } from "@/components/ui/flash";
 import { statusInfo } from "@/lib/constants";
 import { fetchShop } from "@/lib/data";
 import { formatMoney, initials } from "@/lib/format";
@@ -50,7 +51,7 @@ function StatsContent() {
     ? requested
     : 30;
 
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     const [shop, overview] = await Promise.all([
       fetchShop(),
       getOverview({
@@ -61,6 +62,7 @@ function StatsContent() {
     return { shop, overview };
   }, `stats-${days}-${user?.id ?? ""}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
   const { shop, overview } = data;
 

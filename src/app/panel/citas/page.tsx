@@ -21,7 +21,7 @@ import {
 } from "@/lib/constants";
 import { fetchAppointments, fetchShop } from "@/lib/data";
 import { formatDate, formatTime } from "@/lib/datetime";
-import { formatMoney, initials } from "@/lib/format";
+import { formatMoney, formatPhone, initials } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
 
 const views = [
@@ -57,7 +57,7 @@ function AppointmentsContent() {
     statusParam && isValidStatus(statusParam) ? statusParam : "";
   const query = (params.get("q") ?? "").trim();
 
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     if (!user) return null;
     const shop = await fetchShop();
     const appointments = await fetchAppointments({
@@ -70,6 +70,7 @@ function AppointmentsContent() {
     return { shop, appointments };
   }, `appointments-${user?.id ?? ""}-${view}-${status}-${query}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
   const { shop, appointments } = data;
   const tz = shop.timezone;
@@ -245,7 +246,10 @@ function AppointmentsContent() {
                         {appointment.client.name}
                       </Link>
                       <p className="text-xs text-stone-400">
-                        {appointment.client.phone}
+                        {formatPhone(
+                          appointment.client.phone,
+                          shop.whatsappCountryCode,
+                        )}
                       </p>
                     </td>
                     <td className="px-4 py-3">

@@ -57,7 +57,7 @@ function AgendaContent() {
   const { profile: user } = useAuth();
   const dateParam = params.get("date");
   const barberParam = params.get("barber");
-  const { data } = useAsync(async () => {
+  const { data, error: loadError } = useAsync(async () => {
     if (!user) return null;
     const [shop, activeBarbers] = await Promise.all([
       fetchShop(),
@@ -85,6 +85,7 @@ function AgendaContent() {
     };
   }, `agenda-${user?.id ?? ""}-${dateParam ?? ""}-${barberParam ?? ""}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
   const {
     shop,

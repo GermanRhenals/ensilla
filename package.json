@@ -1,7 +1,8 @@
 {
   "name": "ensilla",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "description": "En-silla: reservas online y panel de gestion para barberia. Next.js estatico + Supabase.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,46 +10,28 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "smoke:supabase": "node --env-file=.env scripts/smoke-supabase.mjs",
-    "db:seed:supabase": "node --env-file=.env scripts/seed-supabase.mjs",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
-    "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "db:seed:supabase": "node --env-file=.env scripts/seed-supabase.mjs"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
     "@supabase/supabase-js": "^2.118.0",
-    "bcryptjs": "^3.0.3",
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",
-    "jose": "^6.2.13",
     "lucide-react": "^1.62.0",
     "next": "16.4.3",
-    "prisma": "^6.19.3",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "zod": "^4.6.7"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
-    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
-    "tsx": "^4.23.15",
     "typescript": "^5"
   },
   "allowScripts": {
-    "@prisma/client@6.19.3": true,
-    "@prisma/engines@6.19.3": true,
-    "esbuild@0.28.2": true,
-    "prisma@6.19.3": true,
     "unrs-resolver@1.12.2": true
   }
 }

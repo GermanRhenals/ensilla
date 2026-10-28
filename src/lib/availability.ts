@@ -1,4 +1,15 @@
-import { dateKey, minutesOfDay } from "./datetime";
+/**
+ * Disponibilidad de turnos.
+ *
+ * RESPONSABILIDAD
+ * Consumir la RPC `get_availability`, que calcula los huecos reales en Postgres
+ * (horario comercial, turnos ocupados, bloqueos y anticipación mínima).
+ *
+ * INVARIANTE
+ * La disponibilidad nunca se calcula en el navegador: hacerlo exigiría leer
+ * turnos ajenos y rompería la privacidad de los clientes.
+ */
+
 import { supabase } from "./supabase";
 import type { AvailabilitySlot } from "./types";
 
@@ -26,6 +37,7 @@ export async function getAvailability({
     p_service_id: serviceId,
     p_barber_id: barberId ?? null,
   });
+
   if (error) throw new Error(error.message);
 
   return ((data ?? []) as SlotRow[]).map((slot) => ({
@@ -35,12 +47,4 @@ export async function getAvailability({
     barberName: slot.barber_name,
     barberColor: slot.barber_color,
   }));
-}
-
-export function slotDayKey(slot: { start: string }, timezone: string) {
-  return dateKey(new Date(slot.start), timezone);
-}
-
-export function minutesOfSlot(start: Date, timezone: string) {
-  return minutesOfDay(start, timezone);
 }

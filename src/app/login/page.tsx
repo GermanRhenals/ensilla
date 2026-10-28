@@ -9,6 +9,13 @@ import { Flash } from "@/components/ui/flash";
 import { Logo } from "@/components/ui/logo";
 import { supabase } from "@/lib/supabase";
 
+/**
+ * Solo se muestran credenciales de ejemplo cuando el despliegue es una demo.
+ * En producción el bloque desaparece del bundle (la variable se inyecta en
+ * tiempo de build).
+ */
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -149,42 +156,44 @@ function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-6 rounded-xl border border-dashed border-line bg-white/60 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">
-              Cuentas demo
-            </p>
-            <div className="mt-2 space-y-1 text-xs text-stone-500">
-              <p>
-                Admin:{" "}
-                <span className="font-mono text-ink">admin@ensilla.app</span> /{" "}
-                <span className="font-mono text-ink">admin123</span>
+          {DEMO_MODE && (
+            <div className="mt-6 rounded-xl border border-dashed border-line bg-white/60 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                Cuentas demo
               </p>
-              <p>
-                Barbero:{" "}
-                <span className="font-mono text-ink">bruno@ensilla.app</span> /{" "}
-                <span className="font-mono text-ink">barber123</span>
-              </p>
+              <div className="mt-2 space-y-1 text-xs text-stone-500">
+                <p>
+                  Admin:{" "}
+                  <span className="font-mono text-ink">admin@ensilla.app</span> /{" "}
+                  <span className="font-mono text-ink">admin123</span>
+                </p>
+                <p>
+                  Barbero:{" "}
+                  <span className="font-mono text-ink">bruno@ensilla.app</span> /{" "}
+                  <span className="font-mono text-ink">barber123</span>
+                </p>
+              </div>
+              <DemoLogin
+                accounts={[
+                  {
+                    label: "admin",
+                    email: "admin@ensilla.app",
+                    password: "admin123",
+                  },
+                  {
+                    label: "Bruno",
+                    email: "bruno@ensilla.app",
+                    password: "barber123",
+                  },
+                ]}
+                onSelect={(nextEmail, nextPassword) => {
+                  setEmail(nextEmail);
+                  setPassword(nextPassword);
+                  enter(nextEmail, nextPassword);
+                }}
+              />
             </div>
-            <DemoLogin
-              accounts={[
-                {
-                  label: "admin",
-                  email: "admin@ensilla.app",
-                  password: "admin123",
-                },
-                {
-                  label: "Bruno",
-                  email: "bruno@ensilla.app",
-                  password: "barber123",
-                },
-              ]}
-              onSelect={(nextEmail, nextPassword) => {
-                setEmail(nextEmail);
-                setPassword(nextPassword);
-                enter(nextEmail, nextPassword);
-              }}
-            />
-          </div>
+          )}
 
           <Link
             href="/"

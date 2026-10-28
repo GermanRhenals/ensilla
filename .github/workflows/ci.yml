@@ -1,0 +1,50 @@
+# Integración continua.
+#
+# OBJETIVO
+# Impedir que llegue a `main` código que no compila, no pasa el linter o no
+# puede exportarse como sitio estático. No despliega: de eso se encarga
+# `deploy.yml`, que se ejecuta a mano cuando la versión está verificada.
+#
+# NOTA SOBRE SECRETOS
+# El build estático no necesita credenciales reales (las variables públicas se
+# inyectan en el despliegue), pero se definen marcadores para que cualquier
+# importación en tiempo de build encuentre valores válidos.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, lint y build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` instala exactamente lo que declara package-lock.json.
+      - run: npm ci
+
+      - name: Verificar tipos
+        run: npm run typecheck
+
+      - name: Linter
+        run: npm run lint
+
+      - name: Build estático
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          NEXT_PUBLIC_DEMO_MODE: "false"
+        run: npm run build

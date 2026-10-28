@@ -105,6 +105,12 @@ try {
   );
   if (confirmationError) throw confirmationError;
   assert(confirmation?.client?.name === testName, "Confirmación incorrecta.");
+  // La confirmación pública no debe exponer el teléfono del barbero ni datos
+  // internos del turno.
+  assert(
+    !("phone" in (confirmation?.barber ?? {})),
+    "La confirmación expone el teléfono del barbero.",
+  );
   console.log("✓ get_booking_confirmation");
 
   const { data: createdBooking } = await service
@@ -128,6 +134,15 @@ try {
     },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // El privilegio de columna debe impedir cambiar el rol por la API, incluso
+  // para un administrador: ese cambio solo lo hace la Edge Function.
+  const escalate = await admin
+    .from("profiles")
+    .update({ role: "ADMIN" })
+    .eq("id", auth.user.id);
+  assert(escalate.error, "La escalada de privilegios no está bloqueada.");
+  console.log("✓ update de role bloqueado");
 
   const { error: appointmentSelectError } = await admin
     .from("appointments")
@@ -229,6 +244,21 @@ try {
   }
   assert(edgeUpdate?.id === created.userId, "admin-users update falló.");
   console.log("✓ admin-users update");
+
+  // `toggle` es la vía para reactivar una cuenta desactivada. Se usa el mismo
+  // usuario de prueba: el update anterior lo dejó inactivo.
+  const { data: edgeToggle, error: edgeToggleError } =
+    await admin.functions.invoke("admin-users", {
+      body: { action: "toggle", id: created.userId, active: true },
+    });
+  if (edgeToggleError) {
+    throw new Error(`admin-users toggle: ${edgeToggleError.message}`);
+  }
+  assert(
+    edgeToggle?.id === created.userId && edgeToggle.active === true,
+    "admin-users toggle falló.",
+  );
+  console.log("✓ admin-users toggle");
 } finally {
   if (created.appointments.length) {
     await service

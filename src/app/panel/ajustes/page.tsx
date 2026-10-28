@@ -11,7 +11,7 @@ import {
   updateHours,
   updateShop,
 } from "@/lib/data";
-import { minutesToTime, timeToMinutes } from "@/lib/datetime";
+import { minutesToTime, timeToMinutes, isValidTimeZone } from "@/lib/datetime";
 import { useAsync } from "@/lib/use-async";
 
 export default function SettingsPage() {
@@ -19,7 +19,7 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     const [shop, hours] = await Promise.all([
       fetchShop(),
       fetchBusinessHours(),
@@ -27,6 +27,7 @@ export default function SettingsPage() {
     return { shop, hours };
   }, "settings");
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (profile.role !== "ADMIN") {
     return <Flash error="Solo un administrador puede ver esta sección." />;
@@ -41,6 +42,25 @@ export default function SettingsPage() {
     setPending("shop");
     const formData = new FormData(event.currentTarget);
     try {
+      const timezone = String(formData.get("timezone") || "").trim();
+      const currency = String(formData.get("currency") || "")
+        .trim()
+        .toUpperCase();
+
+      // La zona horaria y la moneda son datos estructurales: si se guardan mal,
+      // la agenda y los precios dejan de ser confiables. Se validan antes de
+      // escribir.
+      if (!isValidTimeZone(timezone)) {
+        throw new Error(
+          "La zona horaria no es válida. Usá un identificador IANA, por ejemplo America/Bogota.",
+        );
+      }
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw new Error(
+          "La moneda debe ser un código ISO de tres letras, por ejemplo COP.",
+        );
+      }
+
       await updateShop({
         name: String(formData.get("name") || "").trim(),
         tagline: String(formData.get("tagline") || "").trim(),
@@ -54,11 +74,9 @@ export default function SettingsPage() {
         ).replace(/\D/g, ""),
         email: String(formData.get("email") || "").trim() || null,
         instagram: String(formData.get("instagram") || "").trim() || null,
-        currency: String(formData.get("currency") || "")
-          .trim()
-          .toUpperCase(),
+        currency,
         locale: String(formData.get("locale") || "es").trim(),
-        timezone: String(formData.get("timezone") || "").trim(),
+        timezone,
         slot_step_min: Number(formData.get("slotStepMin") || 15),
         buffer_min: Number(formData.get("bufferMin") || 0),
         lead_time_min: Number(formData.get("leadTimeMin") || 0),

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight, AtSign } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
-import type { Shop } from "@/lib/shop";
+import type { Shop } from "@/lib/types";
 
 export function PublicHeader({ shop }: { shop: Shop }) {
   return (

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
-import { normalizePhone } from "@/lib/booking";
+import { normalizePhone } from "@/lib/phone";
 import {
   fetchBarberCompletedCount,
   fetchShop,
@@ -28,7 +28,7 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!user) return null;
     const [shop, completed] = await Promise.all([
       fetchShop(),
@@ -37,6 +37,7 @@ export default function ProfilePage() {
     return { shop, completed };
   }, `profile-${user?.id ?? ""}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!user || !data) return null;
   const currentUser = user;
   const { shop, completed } = data;

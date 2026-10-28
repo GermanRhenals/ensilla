@@ -40,7 +40,7 @@ function ConfirmationContent() {
   const id = params.get("id") ?? "";
   const [error, setError] = useState<string | null>(null);
 
-  const { data } = useAsync(async () => {
+  const { data, error: loadError, loading } = useAsync(async () => {
     if (!id) return null;
     const [shop, booking] = await Promise.all([
       fetchShop(),
@@ -49,7 +49,13 @@ function ConfirmationContent() {
     return { shop, booking };
   }, `confirmation-${id}`);
 
-  if (!data) {
+  // Sin identificador no hay nada que consultar: se responde de inmediato en
+  // lugar de dejar un spinner infinito.
+  if (!id) {
+    return <BookingNotFound />;
+  }
+
+  if (loading) {
     return (
       <div className="flex justify-center py-24 text-stone-400">
         <Loader2 className="size-5 animate-spin" />
@@ -57,21 +63,25 @@ function ConfirmationContent() {
     );
   }
 
-  const { shop, booking } = data;
-  if (!booking) {
+  if (loadError || !data) {
     return (
       <div className="container-page py-16 text-center">
         <h1 className="font-display text-3xl font-semibold">
-          No encontramos esa reserva.
+          No pudimos cargar la reserva.
         </h1>
         <p className="mt-2 text-sm text-stone-500">
-          Revisá el enlace o volvé a reservar tu turno.
+          {loadError ?? "Revisá el enlace o intentá de nuevo."}
         </p>
         <Link href="/reservar" className="btn-primary mt-5 inline-flex">
           Reservar de nuevo
         </Link>
       </div>
     );
+  }
+
+  const { shop, booking } = data;
+  if (!booking) {
+    return <BookingNotFound />;
   }
 
   const confirmed = booking;
@@ -220,6 +230,23 @@ function ConfirmationContent() {
           Volver al inicio
         </Link>
       </p>
+    </div>
+  );
+}
+
+/** Estado único para enlaces incompletos o reservas inexistentes. */
+function BookingNotFound() {
+  return (
+    <div className="container-page py-16 text-center">
+      <h1 className="font-display text-3xl font-semibold">
+        No encontramos esa reserva.
+      </h1>
+      <p className="mt-2 text-sm text-stone-500">
+        Revisá el enlace o volvé a reservar tu turno.
+      </p>
+      <Link href="/reservar" className="btn-primary mt-5 inline-flex">
+        Reservar de nuevo
+      </Link>
     </div>
   );
 }

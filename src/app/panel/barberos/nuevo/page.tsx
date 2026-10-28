@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, KeyRound, Loader2, UserPlus } from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
-import { normalizePhone } from "@/lib/booking";
+import { normalizePhone } from "@/lib/phone";
 import { createBarber } from "@/lib/data";
 
 export default function NewBarberPage() {

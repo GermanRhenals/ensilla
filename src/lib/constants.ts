@@ -31,9 +31,6 @@ export const SPANISH_LOCALES = [
   { value: "es-VE", label: "Venezuela — VES" },
 ] as const;
 
-export const SESSION_COOKIE = "ensilla_session";
-export const SESSION_DURATION_DAYS = 7;
-
 export const APPOINTMENT_STATUS = {
   PENDING: {
     label: "Pendiente",
@@ -70,8 +67,6 @@ export const APPOINTMENT_STATUS_LIST = Object.keys(
 
 export const BLOCKING_STATUSES = ["PENDING", "CONFIRMED", "COMPLETED"];
 
-export const STAFF_ROLES = ["ADMIN", "BARBER"];
-
 export const WEEKDAY_LABELS = [
   "Domingo",
   "Lunes",
@@ -81,21 +76,6 @@ export const WEEKDAY_LABELS = [
   "Viernes",
   "Sábado",
 ];
-
-export const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-
-export const DEFAULT_SHOP = {
-  name: "En-silla Barbershop",
-  tagline: "Cortes con memoria",
-  currency: DEFAULT_CURRENCY,
-  timezone: DEFAULT_TIMEZONE,
-  locale: DEFAULT_LOCALE,
-  whatsappCountryCode: DEFAULT_WHATSAPP_COUNTRY_CODE,
-  slotStepMin: 15,
-  bufferMin: 10,
-  leadTimeMin: 60,
-  bookingWindowDays: 21,
-};
 
 export function statusInfo(status: string) {
   return (

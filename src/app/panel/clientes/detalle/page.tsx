@@ -21,7 +21,7 @@ import {
 import { Flash } from "@/components/ui/flash";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useAuth } from "@/lib/auth-context";
-import { normalizePhone } from "@/lib/booking";
+import { normalizePhone } from "@/lib/phone";
 import {
   addIdea,
   deleteIdea,
@@ -56,7 +56,7 @@ function ClientDetailContent() {
   const [message, setMessage] = useState<string | null>(params.get("ok"));
   const [error, setError] = useState<string | null>(params.get("error"));
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!id) return null;
     const [shop, barbers, client] = await Promise.all([
       fetchShop(),
@@ -66,6 +66,7 @@ function ClientDetailContent() {
     return { shop, barbers, client };
   }, `client-${id}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (!data.client) {
     return (

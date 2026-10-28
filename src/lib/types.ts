@@ -79,12 +79,12 @@ export type Client = {
   appointmentCount?: number;
 };
 
-export type AppointmentStatus =
-  | "PENDING"
-  | "CONFIRMED"
-  | "COMPLETED"
-  | "CANCELLED"
-  | "NO_SHOW";
+/**
+ * El estado de un turno se define una sola vez en `constants.ts`
+ * (etiquetas, colores y lista válida). Aquí solo se reexporta el tipo.
+ */
+import type { AppointmentStatus } from "./constants";
+export type { AppointmentStatus };
 
 export type AppointmentSource = "PUBLIC" | "STAFF";
 

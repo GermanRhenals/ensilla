@@ -32,12 +32,13 @@ function ServiceDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const { data, reload } = useAsync(async () => {
+  const { data, reload, error: loadError } = useAsync(async () => {
     if (!id) return null;
     const [shop, service] = await Promise.all([fetchShop(), fetchService(id)]);
     return { shop, service };
   }, `service-${id}`);
 
+  if (loadError) return <Flash error={loadError} />;
   if (!profile || !data) return null;
   if (profile.role !== "ADMIN") {
     return <Flash error="Solo un administrador puede ver esta sección." />;

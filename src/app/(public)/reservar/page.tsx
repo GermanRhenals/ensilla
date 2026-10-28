@@ -29,7 +29,7 @@ export default function BookingPage() {
 
 function BookingContent() {
   const params = useSearchParams();
-  const { data } = useAsync(async () => {
+  const { data, error: loadError, loading } = useAsync(async () => {
     const [shop, barbers, hours, services] = await Promise.all([
       fetchShop(),
       fetchPublicBarbers(),
@@ -39,10 +39,23 @@ function BookingContent() {
     return { shop, barbers, hours, services };
   }, "booking");
 
-  if (!data) {
+  if (loading) {
     return (
       <div className="flex justify-center py-24 text-stone-400">
         <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadError || !data) {
+    return (
+      <div className="container-page py-16 text-center">
+        <h1 className="font-display text-3xl font-semibold">
+          No pudimos cargar la agenda.
+        </h1>
+        <p className="mt-2 text-sm text-stone-500">
+          {loadError ?? "Intentá de nuevo en unos minutos."}
+        </p>
       </div>
     );
   }
