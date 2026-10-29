@@ -26,10 +26,12 @@ npx supabase db push      # contra el proyecto de desarrollo
 npm run smoke:supabase    # contra el proyecto de desarrollo
 ```
 
-Si el cambio toca recordatorios, desplegar la función y probar el envío real:
+Si el cambio toca recordatorios o el alta autoservicio, desplegar la función y
+probar el envío real:
 
 ```bash
 npx supabase functions deploy send-reminder
+npx supabase functions deploy shop-signup
 SMOKE_SEND_REMINDER=true npm run smoke:supabase
 ```
 
@@ -64,8 +66,10 @@ Hay tres formas de resolver una barbería y no son intercambiables:
 | Contexto | Función | Origen |
 | --- | --- | --- |
 | Panel autenticado | `fetchShop()` | RPC `current_shop`, deduce el `shop_id` del perfil |
-| Sitio público por enlace | `fetchShopBySlug(slug)` | RPC `get_public_shop`, solo barberías activas |
+| Sitio público por enlace | `fetchShopBySlug(slug)` | RPC `get_public_shop`, solo barberías activas y publicadas |
 | Buscador de portada | `searchShops(query)` | RPC `search_shops`, mínimo 2 caracteres |
+| Alta autoservicio | `requestShopSignup()` / `resendShopSignup()` | Edge Function `shop-signup` |
+| Publicación | `setShopPublished(published)` | RPC `set_shop_published` |
 
 Reglas:
 
@@ -77,7 +81,7 @@ Reglas:
   opcional para legibilidad, no un mecanismo de seguridad.
 - El sitio público **sí** debe filtrar por `shop_id` al leer `services`,
   `barbers_public` y `business_hours`: `anon` puede ver datos públicos de
-  cualquier barbería activa.
+  cualquier barbería activa y publicada.
 - `FALLBACK_SHOP` tiene `id` vacío a propósito. Si una vista va a escribir, debe
   esperar a que la barbería real esté cargada.
 
@@ -112,13 +116,19 @@ export async function fetchSomething(id: string) {
 
 ```text
 /                          Portada con buscador por nombre
+/registro                  Alta autoservicio de barbería
+/confirmar/                Activación de la cuenta desde el correo
 /reservar?barberia=<slug>  Servicio → barbero → día → hora → datos
 /reservar/confirmacion?id=<uuid>
 ```
 
 - Sin `?barberia=`, `/reservar` muestra el buscador en lugar de un error.
-- Un slug inexistente o una barbería inactiva se tratan igual: no se revela si
-  existió.
+- Un slug inexistente, una barbería inactiva o una no publicada se tratan igual:
+  no se revela si existió.
+- `/registro` crea la barbería oculta y el perfil pendiente. La cuenta no puede
+  entrar hasta abrir el enlace de `/confirmar/`.
+- `/confirmar/` procesa los tokens a mano y llama a `confirm_shop_signup`; no
+  agregar `detectSessionInUrl` sin quitar ese procesamiento.
 - La confirmación usa el UUID como credencial. No listar reservas ni permitir
   cambios de horario desde ese enlace.
 - El correo se agrega después de confirmar con `set_booking_email`. El botón
@@ -126,18 +136,20 @@ export async function fetchSomething(id: string) {
 - "Cerrar" vuelve a la portada; el enlace de la barbería queda en el pie para
   reservar de nuevo.
 
-## Autenticación y recuperación
+## Autenticación, alta y recuperación
 
 - `/login` inicia sesión; `/recuperar` pide el enlace por correo y
-  `/restablecer` define la contraseña nueva.
-- El cliente de Supabase tiene `detectSessionInUrl: false`: `/restablecer`
-  procesa los tokens del hash o el código PKCE, limpia la URL y recién entonces
-  llama a `updateUser`.
-- La URL de retorno se arma con `recoveryRedirectUrl()` e incluye el
-  `NEXT_PUBLIC_BASE_PATH`. Debe estar registrada en Authentication > URL
-  Configuration como `.../restablecer/`.
-- No revelar si el correo existe: `resetPasswordForEmail` responde igual en
-  ambos casos. Tras guardar la contraseña se cierra la sesión de recuperación.
+  `/restablecer` define la contraseña nueva. El alta de barberías usa
+  `/registro` y `/confirmar`.
+- El cliente de Supabase tiene `detectSessionInUrl: false`: `/restablecer` y
+  `/confirmar` procesan los tokens del hash o el código PKCE, limpian la URL y
+  recién entonces llaman a `updateUser` o a `confirm_shop_signup`.
+- Las URLs de retorno se arman con `recoveryRedirectUrl()` y el `basePath`, y
+  deben estar registradas en Authentication > URL Configuration como
+  `.../restablecer/` y `.../confirmar/`.
+- No revelar si el correo existe: `resetPasswordForEmail` y el reenvío de
+  `shop-signup` responden igual en ambos casos. Tras guardar la contraseña se
+  cierra la sesión de recuperación.
 
 ## Reglas para SQL
 
@@ -217,7 +229,13 @@ Si la operación no puede expresarse con `insert`/`update` seguros:
 
 ## Provisión de barberías
 
-No hay registro público. Para crear una barbería en desarrollo:
+La vía normal en desarrollo es el alta autoservicio en `/registro`; requiere la
+Edge Function `shop-signup` desplegada y los secretos de Resend. La barbería nace
+oculta y se publica desde **Panel > Ajustes** cuando tiene servicio, horario y
+equipo.
+
+Para crear una barbería ya publicada sin pasar por el correo (por ejemplo, una
+demo o una migración asistida):
 
 ```bash
 npm run db:create-shop -- \
@@ -235,21 +253,26 @@ El script:
 - Crea el horario semanal por defecto si la barbería no tiene ninguno.
 - Crea el usuario de Auth con `shop_id` en `user_metadata` y deja su perfil como
   `ADMIN` activo.
+- Crea la barbería con `published = true`.
 
 Para probar aislamiento, crear una segunda barbería con otro slug y otro
 administrador, y verificar que ninguna sesión vea datos de la otra. El smoke test
 hace esta comprobación con una barbería temporal que luego elimina.
 
-## Recordatorios por correo
+## Recordatorios y correo de alta
 
 - La Edge Function `send-reminder` recibe `{ appointmentId }`, lee el correo con
   la clave de servicio y envía con Resend.
-- Secretos: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y opcional
-  `REMINDER_FROM_NAME`. Se configuran con `npx supabase secrets set`.
+- La Edge Function `shop-signup` usa el mismo remitente para el enlace de
+  confirmación del alta.
+- Secretos: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`, opcional
+  `REMINDER_FROM_NAME` y `APP_BASE_URL`. Se configuran con
+  `npx supabase secrets set`.
 - El remitente debe pertenecer a un dominio verificado en Resend.
 - El enfriamiento de 2 minutos vive en la función; no duplicar esa regla en el
   navegador.
-- Nunca devolver el correo del cliente ni la clave de Resend.
+- Nunca devolver el correo del cliente, el enlace de confirmación ni la clave de
+  Resend.
 - Para desarrollo sin dominio verificado, usar el remitente de pruebas de Resend
   y un correo propio.
 
@@ -305,6 +328,14 @@ No hay suite automatizada. Antes de publicar, recorrer:
 13. "¿La olvidaste?" envía el correo, el enlace abre `/restablecer/` y la
     contraseña nueva permite entrar. Un enlace vencido o reutilizado muestra el
     mensaje de error, nunca el formulario.
+14. `/registro` crea la barbería y muestra la vista de correo enviado; el enlace
+    abre `/confirmar/` y activa la cuenta.
+15. La barbería recién creada no aparece en el buscador ni acepta reservas
+    públicas hasta publicarse.
+16. El checklist de **Ajustes** impide publicar sin servicio, horario o equipo, y
+    publicar habilita la ruta pública.
+17. Un segundo registro con el mismo correo es rechazado; el reenvío responde
+    igual para correos existentes y desconocidos.
 
 El smoke test cubre el circuito de datos:
 
@@ -329,7 +360,10 @@ escalada de privilegios. El envío real de correo queda opt-in con
 | `useSearchParams() should be wrapped in a suspense boundary` | Falta `<Suspense>` | Envolver la vista |
 | El build falla por `window` | Código de navegador en un componente de servidor | Agregar `"use client"` |
 | `FunctionsHttpError` al crear usuario | Falta desplegar la Edge Function | `npx supabase functions deploy admin-users` |
-| La búsqueda no devuelve la barbería | Menos de 2 caracteres o barbería inactiva | Revisar `shops.active` y el término |
+| `FunctionsHttpError` en `/registro` | Falta desplegar `shop-signup` o faltan secretos | `npx supabase functions deploy shop-signup` y revisar secretos |
+| La búsqueda no devuelve la barbería | Menos de 2 caracteres, barbería inactiva o no publicada | Revisar `shops.active`, `shops.published` y el término |
+| No se puede publicar desde Ajustes | Falta servicio, horario o integrante activo | Completar el checklist antes de publicar |
+| El perfil queda inactivo tras confirmar | `pending_signup` no coincide o la cuenta no es la que abrió el enlace | Revisar `profiles.pending_signup` y volver a pedir el enlace |
 | `send-reminder` responde 500 | Faltan secretos de Resend o el dominio no está verificado | Configurar secretos y revisar Resend |
 
 ## Pull requests

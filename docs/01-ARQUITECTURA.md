@@ -24,6 +24,7 @@ intermedia propia.
 │  RPC        → reglas         │        └──────────────────────────┘
 │  Auth       → sesiones       │
 │  Edge Fn    → cuentas        │
+│  Edge Fn    → alta           │
 │  Edge Fn    → recordatorios  │────────▶ Resend (correo)
 └──────────────┬───────────────┘
                ▼
@@ -37,18 +38,24 @@ persona; Postgres no.
 ## Multi-barbería
 
 - La tabla `shops` es la raíz del tenant. Tiene `slug` único, configuración de
-  agenda, contacto y estado `active`. El estado solo lo cambia la clave de
-  servicio: suspender una barbería corta el acceso de todo su equipo.
+  agenda, contacto y dos estados: `active` (puede operar) y `published`
+  (aparece en el sitio público). Una barbería nueva nace `active = true` y
+  `published = false`; el dueño la publica cuando tiene el mínimo operativo.
+  Suspender una barbería (`active = false`) corta el acceso de todo su equipo.
 - Todas las tablas operativas (`profiles`, `business_hours`, `services`,
   `clients`, `appointments`, `time_off`, `haircut_ideas`, `notifications`)
   llevan `shop_id`.
 - Las políticas RLS comparan `shop_id` con `current_shop_id()`. Un usuario
   autenticado solo ve y escribe datos de su barbería; si la barbería está
   inactiva, `current_shop_id()` devuelve `null` y el acceso se corta.
-- El sitio público nunca recibe un listado completo: busca por nombre o slug y
-  solo ve barberías activas.
-- No hay registro público de barberías. La provisión se hace con
-  `scripts/create-shop.mjs` y la clave de servicio.
+  `current_shop_id()` no exige `published`: el panel funciona durante el
+  borrador.
+- El sitio público nunca recibe un listado completo ni puede leer `shops`
+  directamente: busca por nombre o slug y solo ve barberías activas y
+  publicadas.
+- El alta es autoservicio (`/registro` → Edge Function `shop-signup`). La vía
+  asistida con `scripts/create-shop.mjs` y la clave de servicio sigue disponible
+  para provisionar una barbería ya publicada.
 
 ## Capas del frontend
 
@@ -69,7 +76,7 @@ función en `src/lib/data`.
 ```text
 /
   └─ ShopSearch → search_shops(consulta)
-        │  mínimo 2 caracteres, solo barberías activas
+        │  mínimo 2 caracteres, solo barberías activas y publicadas
         ▼
 /reservar?barberia=<slug>
   ├─ fetchShopBySlug(slug)     → RPC get_public_shop
@@ -105,6 +112,42 @@ Detalles importantes:
   pública nunca devuelve el correo: apenas indica `has_email`.
 - El archivo `.ics` se genera en el navegador (`src/lib/ics.ts`): no hay API ni
   almacenamiento de archivos.
+
+## Flujo de alta de una barbería
+
+```text
+/registro
+  └─ requestShopSignup() ─Edge Function▶ shop-signup (acción signup)
+        ├─ valida nombre, responsable, correo, contraseña y rate limit
+        ├─ create_shop_signup() ─RPC─▶ shops (published = false) + horario inicial
+        ├─ admin.generateLink(type signup) → usuario de Auth
+        │     └─ handle_new_user crea el perfil inactivo
+        ├─ el perfil queda ADMIN, active = false, pending_signup = true
+        └─ Resend envía el enlace a /confirmar/
+              │
+              ▼
+/confirmar/  (procesa tokens a mano, como /restablecer)
+  └─ confirm_shop_signup() ─RPC─▶ activa el perfil pendiente
+        │
+        ▼
+/panel/ajustes  →  servicio + horario + equipo
+  └─ setShopPublished(true) ─RPC─▶ exige el mínimo operativo
+```
+
+Detalles importantes:
+
+- El registro público de Supabase Auth sigue desactivado: la Edge Function usa
+  la clave de servicio y `admin.generateLink` para crear la cuenta y obtener el
+  enlace. La contraseña viaja solo al backend.
+- El perfil nace inactivo y con `pending_signup = true`. La activación depende de
+  esa columna, no de `raw_user_meta_data`, que el usuario puede modificar.
+- `create_shop_signup` deriva el slug del nombre y resuelve colisiones con
+  sufijos numéricos. Un correo solo puede tener una cuenta
+  (`profiles_email_key`).
+- La barbería no aparece en el buscador ni acepta reservas públicas hasta que
+  `published = true`. El panel sí funciona antes de publicar.
+- El reenvío (`acción resend`) responde igual exista o no la cuenta pendiente,
+  para no enumerar correos.
 
 ## Flujo del panel
 
@@ -154,7 +197,7 @@ src/lib/
 src/lib/data/
   rows.ts           Helpers de normalización, paginación y errores.
   mappers.ts        snake_case de Postgres → camelCase del dominio.
-  shop.ts           shops, búsqueda pública, horario y ajustes.
+  shop.ts           shops, búsqueda pública, alta, publicación y ajustes.
   catalog.ts        services.
   profiles.ts       profiles, barbers_public y Edge Function.
   clients.ts        clients, historial e ideas.
@@ -186,9 +229,19 @@ src/lib/data/
 ### Búsqueda por nombre, no directorio
 
 - El visitante conoce el nombre de su barbería. `search_shops` exige al menos
-  dos caracteres y devuelve como máximo 12 resultados activos.
+  dos caracteres y devuelve como máximo 12 resultados activos y publicados.
 - No existe una ruta que liste todas las barberías: reduce la enumeración y
-  mantiene el foco del producto.
+  mantiene el foco del producto. `anon` tampoco puede leer `shops` directamente.
+
+### Alta autoservicio sin registro público
+
+- El alta crea la cuenta con `admin.generateLink` desde una Edge Function, no
+  con el signup público de Auth. Así se valida el negocio antes de crear la
+  barbería y no se abre una puerta de registro genérica.
+- La barbería nace oculta y el perfil inactivo: el dueño debe confirmar el correo
+  antes de entrar y completar el mínimo operativo antes de publicar.
+- La publicación es un RPC (`set_shop_published`) y no un `update`: exige
+  servicio, horario y equipo, y no se puede forzar desde el navegador.
 
 ### Recordatorio con Resend
 
@@ -227,6 +280,8 @@ src/lib/data/
 | Error de render | `error.tsx` ofrece reintentar o volver al inicio. |
 | Sesión sin perfil activo | `AuthProvider` cierra la sesión y el panel redirige a `/login`. |
 | Slug inexistente en `/reservar` | Se muestra el buscador para retomar el flujo. |
+| Enlace de confirmación vencido o usado | `/confirmar/` explica el problema y ofrece reenviar desde `/registro`. |
+| Barbería no publicada | El sitio público no la encuentra; el panel muestra un aviso con enlace a ajustes. |
 
 ## Rendimiento
 

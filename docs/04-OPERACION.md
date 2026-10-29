@@ -20,12 +20,15 @@ puede pisar la operación.
 
 1. Crear el proyecto. Anotar la región y guardar la contraseña de la base.
 2. En **Authentication > Sign In / Providers > Email**, desactivar
-   **Allow new users to sign up**. Las cuentas las crea un administrador.
+   **Allow new users to sign up** y activar **Confirm email**. El alta
+   autoservicio crea la cuenta con la Edge Function `shop-signup`, no con el
+   registro público, y exige confirmar el correo antes de entrar.
 3. En **Authentication > URL Configuration**, definir el sitio de GitHub Pages
-   como `Site URL` y agregarlo a `Redirect URLs`, junto con la ruta de
-   recuperación (`https://<sitio>/restablecer/` y `http://localhost:3000/restablecer/`).
-   Sin la barra final y sin esa entrada, el enlace del correo no puede cambiar
-   la contraseña.
+   como `Site URL` y agregarlo a `Redirect URLs`, junto con las rutas de
+   recuperación y confirmación
+   (`https://<sitio>/restablecer/`, `https://<sitio>/confirmar/`,
+   `http://localhost:3000/restablecer/` y `http://localhost:3000/confirmar/`).
+   Sin la barra final y sin esas entradas, los enlaces del correo no funcionan.
 4. Aplicar las migraciones:
 
    ```bash
@@ -38,11 +41,14 @@ puede pisar la operación.
    ```bash
    npx supabase functions deploy admin-users
    npx supabase functions deploy send-reminder
+   npx supabase functions deploy shop-signup
    ```
 
    Verificar que `admin-users` tenga `SUPABASE_URL`, `SUPABASE_ANON_KEY` y
    `SUPABASE_SERVICE_ROLE_KEY` en **Edge Functions > Secrets**. Supabase las
    inyecta por defecto; si el proyecto usa claves nuevas, confirmarlas.
+   `shop-signup` también necesita la clave de servicio y las variables de correo
+   del paso siguiente.
 
 ### 2. Correo transaccional (Resend)
 
@@ -55,20 +61,31 @@ puede pisar la operación.
    npx supabase secrets set \
      RESEND_API_KEY=re_... \
      REMINDER_FROM_EMAIL=turnos@tu-dominio.com \
-     REMINDER_FROM_NAME="En-silla"
+     REMINDER_FROM_NAME="En-silla" \
+     APP_BASE_URL=https://<usuario>.github.io/<repositorio>
    ```
 
-4. Volver a desplegar `send-reminder` después de cambiar secretos.
+4. Volver a desplegar `send-reminder` y `shop-signup` después de cambiar
+   secretos.
 5. Probar el envío con una reserva real de prueba desde la confirmación o desde
-   el detalle de la cita en el panel.
+   el detalle de la cita en el panel, y con un alta completa desde `/registro`.
 
 Sin `RESEND_API_KEY` y `REMINDER_FROM_EMAIL`, el botón de recordatorio responde
-que el envío todavía no está configurado. Las reservas siguen funcionando.
+que el envío todavía no está configurado. Las reservas siguen funcionando. El
+alta autoservicio tampoco puede enviar el enlace de confirmación. `APP_BASE_URL`
+debe incluir el `basePath` del despliegue; si falta, la función intenta usar el
+`Origin` de la petición.
 
 ### 3. Primera barbería
 
-El marketplace no tiene registro público de barberías. La primera se crea con
-el script de provisión, que usa la clave de servicio:
+La vía normal es el alta autoservicio en `/registro`: el dueño completa nombre
+del local, responsable, correo y contraseña; recibe un enlace de confirmación;
+al abrirlo se activa su cuenta y puede entrar al panel. La barbería nace oculta
+(`published = false`) y se publica desde **Panel > Ajustes** cuando tiene al
+menos un servicio activo, un día de atención y un integrante activo.
+
+Para provisionar una barbería desde la operación (por ejemplo, una migración
+asistida o una demo), sigue disponible el script con la clave de servicio:
 
 ```bash
 npm run db:create-shop -- \
@@ -81,7 +98,7 @@ npm run db:create-shop -- \
 
 El script:
 
-- Crea la barbería con agenda martes a sábado.
+- Crea la barbería ya publicada con agenda martes a sábado.
 - Crea el primer administrador y lo deja activo.
 - Imprime la ruta pública `/reservar?barberia=<slug>`.
 
@@ -149,17 +166,44 @@ atrás": deja el esquema y el historial inconsistentes.
 
 | Operación | Cómo |
 | --- | --- |
-| Alta | `npm run db:create-shop` con un slug nuevo |
+| Alta autoservicio | `/registro` + confirmación del correo; nace oculta |
+| Alta asistida | `npm run db:create-shop` con un slug nuevo; nace publicada |
 | Edición de datos | Panel > Ajustes del administrador, o script con `--update` |
+| Publicación | Panel > Ajustes, o RPC `set_shop_published(true)`; exige servicio, horario y equipo |
+| Ocultamiento | Panel > Ajustes, o `update shops set published = false where slug = '...'` |
 | Suspensión temporal | `update shops set active = false where slug = '...'` |
 | Reactivación | `update shops set active = true where slug = '...'` |
 | Baja definitiva | No hay borrado desde el producto: la FK `restrict` protege el historial |
 
 Una barbería inactiva deja de aparecer en la búsqueda y su equipo pierde acceso
 a los datos, porque `current_shop_id()` exige un perfil activo de una barbería
-activa en todas las políticas. La suspensión se aplica con la clave de servicio:
-`active` no está entre las columnas que el panel puede escribir. Para una baja
-real, exportar los datos y evaluar el borrado manual con respaldo previo.
+activa en todas las políticas. Una barbería oculta (`published = false`) sigue
+disponible para su equipo, pero no aparece en el buscador ni acepta reservas
+públicas. La suspensión se aplica con la clave de servicio: `active` y
+`published` no están entre las columnas que el panel escribe por `update`
+directo. Para una baja real, exportar los datos y evaluar el borrado manual con
+respaldo previo.
+
+## Confirmación del alta autoservicio
+
+1. El dueño completa `/registro`.
+2. `shop-signup` crea la barbería oculta y el perfil pendiente, y envía el
+   enlace por Resend a `/confirmar/`.
+3. Al abrir el enlace, `/confirmar/` procesa los tokens y activa el perfil.
+4. El dueño entra al panel, completa servicio, horario y equipo, y publica.
+
+Si el correo no llega:
+
+1. Revisar spam y que la cuenta exista en `auth.users` con
+   `profiles.pending_signup = true`.
+2. Confirmar que `APP_BASE_URL` y `.../confirmar/` están bien configurados.
+3. Revisar el límite de envíos de Supabase Auth y de Resend.
+4. Pedir el reenvío desde `/registro` (acción `resend` de `shop-signup`). La
+   respuesta es uniforme para no revelar si el correo existe.
+
+Si el enlace ya se usó o venció, generar uno nuevo con el reenvío. Si la cuenta
+quedó creada pero el perfil no se activó, revisar `profiles.active` y
+`pending_signup` antes de intervenir a mano.
 
 ## Contraseñas olvidadas
 
@@ -213,6 +257,8 @@ Señales de alerta:
 - Errores 500 en RPC: migración faltante o regla de negocio nueva.
 - Recordatorios que no llegan: dominio de Resend sin verificar o secreto
   faltante.
+- Aumento anormal de altas en borrador o de `shop_signup_attempts`: spam del
+  formulario de registro.
 - Crecimiento anormal de `notifications`: revisar si falta poda.
 
 ## Rutinas
@@ -293,12 +339,17 @@ cuentas con doble factor.
 | Síntoma | Causa probable | Solución |
 | --- | --- | --- |
 | El panel redirige a `/login` en bucle | Perfil inactivo o inexistente | Revisar `profiles.active` y reactivar desde el panel o la Edge Function |
+| No puedo entrar después del alta | El correo todavía no está confirmado o el perfil quedó inactivo | Abrir el enlace de `/confirmar/`; revisar `profiles.pending_signup` |
 | "Solo un administrador puede ver esta sección" | Rol `BARBER` | Cambiar el rol con la Edge Function |
-| "No encontramos esa barbería" | Slug inexistente o barbería inactiva | Revisar `shops.slug` y `shops.active` |
+| "No encontramos esa barbería" | Slug inexistente, barbería inactiva o no publicada | Revisar `shops.slug`, `shops.active` y `shops.published` |
 | La agenda no muestra horarios | Día cerrado, servicio inactivo o sin barberos activos | Revisar Ajustes, Servicios y Equipo de esa barbería |
 | "Ese horario ya está ocupado" | Turno o bloqueo superpuesto | Elegir otro horario; revisar `time_off` |
 | El sitio publicado da 404 | `NEXT_PUBLIC_BASE_PATH` incorrecto | Ajustar el workflow y volver a desplegar |
 | Error al invocar `admin-users` | Función no desplegada o secreto faltante | `npx supabase functions deploy admin-users` |
+| Error al invocar `shop-signup` | Función no desplegada o secreto faltante | `npx supabase functions deploy shop-signup` y revisar secretos |
+| El alta responde "no se pudo crear" | Correo ya usado, rate limit o fallo de Resend | Revisar `profiles.email`, `shop_signup_attempts` y Resend > Emails |
+| No se puede publicar la barbería | Falta servicio, horario o integrante activo | Completar el checklist de Panel > Ajustes |
+| El enlace de confirmación vuelve a la portada | Falta la URL en Redirect URLs | Agregar `<sitio>/confirmar/` en Authentication > URL Configuration |
 | "El envío de correos todavía no está configurado" | Faltan secretos de Resend | Configurar `RESEND_API_KEY` y `REMINDER_FROM_EMAIL` |
 | El recordatorio no llega | Dominio sin verificar, rebote o correo inválido | Revisar Resend > Emails y la ficha del cliente |
 | El enlace de recuperación vuelve a la portada | Falta la URL en Redirect URLs | Agregar `<sitio>/restablecer/` en Authentication > URL Configuration |
@@ -315,4 +366,5 @@ para entender decisiones pasadas.
 | --- | --- | --- | --- |
 | 2026-10-28 | Endurecimiento de RLS, privilegios por columna y anti-abuso | — | `npm run smoke:supabase` |
 | 2026-10-29 | Marketplace multi-barbería, búsqueda pública y recordatorios con Resend | — | `npm run smoke:supabase` |
+| 2026-10-29 | Alta autoservicio de barberías, publicación con checklist y confirmación por correo | — | `npm run build` + alta manual |
 |  |  |  |  |

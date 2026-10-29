@@ -24,6 +24,9 @@ export function PublicHeader() {
           <Link className="transition hover:text-ink" href="/#para-barberias">
             Para barberías
           </Link>
+          <Link className="transition hover:text-ink" href="/registro">
+            Sumá tu barbería
+          </Link>
         </nav>
 
         <div className="flex items-center gap-2">

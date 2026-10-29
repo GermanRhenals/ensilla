@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarCheck, Search, Store } from "lucide-react";
+import { CalendarCheck, Scissors, Search, Store } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
 
 /**
@@ -60,6 +60,15 @@ export function PublicFooter() {
               >
                 <Store className="size-4 text-copper" />
                 Acceso del equipo
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/registro"
+                className="inline-flex items-center gap-2 transition hover:text-cream"
+              >
+                <Scissors className="size-4 text-copper" />
+                Sumá tu barbería
               </Link>
             </li>
           </ul>

@@ -1,13 +1,27 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Clock3, Globe2, Loader2, Save, Store } from "lucide-react";
+import Link from "next/link";
+import {
+  Check,
+  Circle,
+  Clock3,
+  Eye,
+  EyeOff,
+  Globe2,
+  Loader2,
+  Save,
+  Store,
+} from "lucide-react";
 import { Flash } from "@/components/ui/flash";
 import { useAuth } from "@/lib/auth-context";
 import { SPANISH_LOCALES, WEEKDAY_LABELS } from "@/lib/constants";
 import {
+  fetchBarbers,
   fetchBusinessHours,
+  fetchServices,
   fetchShop,
+  setShopPublished,
   updateHours,
   updateShop,
 } from "@/lib/data";
@@ -20,11 +34,13 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const { data, reload, error: loadError } = useAsync(async () => {
-    const [shop, hours] = await Promise.all([
+    const [shop, hours, services, barbers] = await Promise.all([
       fetchShop(),
       fetchBusinessHours(),
+      fetchServices(true),
+      fetchBarbers(),
     ]);
-    return { shop, hours };
+    return { shop, hours, services, barbers };
   }, "settings");
 
   if (loadError) return <Flash error={loadError} />;
@@ -32,8 +48,18 @@ export default function SettingsPage() {
   if (profile.role !== "ADMIN") {
     return <Flash error="Solo un administrador puede ver esta sección." />;
   }
-  const { shop, hours } = data;
+  const { shop, hours, services, barbers } = data;
   const byWeekday = new Map(hours.map((hour) => [hour.weekday, hour]));
+
+  // El mismo mínimo que exige `set_shop_published`. Se muestra acá para que el
+  // botón de publicar no falle sin explicación.
+  const hasService = services.length > 0;
+  const hasHours = hours.some((hour) => hour.active);
+  const hasTeam = barbers.some(
+    (barber) =>
+      barber.active && (barber.role === "ADMIN" || barber.role === "BARBER"),
+  );
+  const readyToPublish = hasService && hasHours && hasTeam;
 
   async function saveShop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +150,29 @@ export default function SettingsPage() {
         saveError instanceof Error
           ? saveError.message
           : "No se pudieron guardar los horarios.",
+      );
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function togglePublication(published: boolean) {
+    setMessage(null);
+    setError(null);
+    setPending("publish");
+    try {
+      await setShopPublished(published);
+      setMessage(
+        published
+          ? "Tu barbería ya aparece en el sitio público."
+          : "Tu barbería dejó de aparecer en el sitio público.",
+      );
+      reload();
+    } catch (publishError) {
+      setError(
+        publishError instanceof Error
+          ? publishError.message
+          : "No se pudo cambiar la publicación.",
       );
     } finally {
       setPending(null);
@@ -444,6 +493,88 @@ export default function SettingsPage() {
         </form>
 
         <div className="space-y-4">
+          <div className="card card-pad">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Globe2 className="size-4 text-copper" />
+                <h2 className="font-semibold">Publicación</h2>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                  shop.published
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                {shop.published ? "Publicada" : "Borrador"}
+              </span>
+            </div>
+
+            <p className="mt-1 text-xs leading-relaxed text-stone-500">
+              {shop.published
+                ? "Tu barbería aparece en el buscador público y acepta reservas online."
+                : "Tu barbería todavía no aparece en el buscador público. Podés cargar todo con calma y publicarla cuando esté lista."}
+            </p>
+
+            <ul className="mt-4 space-y-2 text-xs">
+              {[
+                { done: hasService, label: "Al menos un servicio activo" },
+                { done: hasHours, label: "Al menos un día de atención" },
+                { done: hasTeam, label: "Al menos un integrante activo" },
+              ].map((item) => (
+                <li key={item.label} className="flex items-center gap-2">
+                  {item.done ? (
+                    <Check className="size-4 shrink-0 text-sage" />
+                  ) : (
+                    <Circle className="size-4 shrink-0 text-stone-300" />
+                  )}
+                  <span
+                    className={item.done ? "text-stone-600" : "text-stone-400"}
+                  >
+                    {item.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              type="button"
+              onClick={() => togglePublication(!shop.published)}
+              className={
+                shop.published
+                  ? "btn-secondary mt-4 w-full"
+                  : "btn-primary mt-4 w-full"
+              }
+              disabled={
+                pending !== null || (!shop.published && !readyToPublish)
+              }
+            >
+              {pending === "publish" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : shop.published ? (
+                <EyeOff className="size-4" />
+              ) : (
+                <Eye className="size-4" />
+              )}
+              {shop.published ? "Ocultar del sitio" : "Publicar mi barbería"}
+            </button>
+
+            {!shop.published && !readyToPublish && (
+              <p className="mt-2 text-[11px] leading-relaxed text-stone-400">
+                Completá los tres puntos para habilitar la publicación.
+              </p>
+            )}
+
+            {shop.published && (
+              <Link
+                href={`/reservar?barberia=${shop.slug}`}
+                className="mt-2 inline-flex text-xs font-medium text-copper transition hover:text-ink"
+              >
+                Ver la página pública
+              </Link>
+            )}
+          </div>
+
           <form onSubmit={saveHours} className="card card-pad">
             <div className="flex items-center gap-2">
               <Clock3 className="size-4 text-copper" />

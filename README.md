@@ -20,7 +20,7 @@ navegador**.
 | Interfaz | Next.js 16 (App Router, export estático), React 19, TypeScript estricto |
 | Estilos | Tailwind CSS v4 (tokens en `src/app/globals.css`) |
 | Datos y autenticación | Supabase (Postgres 17, Auth, RLS, RPC, Edge Functions) |
-| Correo | Resend, a través de la Edge Function `send-reminder` |
+| Correo | Resend, a través de las Edge Functions `shop-signup` y `send-reminder` |
 | Despliegue | GitHub Pages (sitio estático) + GitHub Actions |
 | Fechas y zonas horarias | `date-fns` + `date-fns-tz` |
 
@@ -51,6 +51,26 @@ Edge Functions que guardan la clave de servicio.
 La disponibilidad se calcula en Postgres: el navegador nunca ve turnos de otras
 personas. El enlace de confirmación contiene un UUID no adivinable que funciona
 como credencial.
+
+El alta de una barbería también es autoservicio:
+
+```text
+/registro  →  nombre del local, responsable, correo y contraseña
+      ↓
+Edge Function shop-signup
+      ├─ crea la barbería oculta (published = false)
+      ├─ crea la cuenta del dueño inactiva
+      └─ envía un enlace de confirmación con Resend
+      ↓
+/confirmar/  →  activa la cuenta
+      ↓
+/panel/ajustes  →  servicios + horario + equipo → publicar
+```
+
+El registro libre de Supabase Auth sigue desactivado: la Edge Function usa la
+clave de servicio y el enlace de confirmación viaja por Resend. Una barbería
+recién creada no aparece en el buscador hasta que el dueño completa el mínimo
+operativo y la publica.
 
 ---
 
@@ -101,39 +121,53 @@ npx supabase db push
 Las migraciones de `supabase/migrations/` son la única fuente de verdad del
 esquema. No se editan una vez aplicadas: los cambios se agregan como una
 migración nueva. La migración `20261029000000_multi_shop.sql` convierte el
-esquema de barbería única en marketplace y conserva los datos existentes.
+esquema de barbería única en marketplace y conserva los datos existentes;
+`20261029120000_shop_signup.sql` agrega el alta autoservicio, la publicación de
+barberías y la confirmación de la cuenta del dueño.
 
-> **Recuperación de contraseña:** en **Authentication > URL Configuration**
-> agregar a `Redirect URLs` la ruta de retorno del despliegue:
-> `http://localhost:3000/restablecer/` y
-> `https://<usuario>.github.io/<repositorio>/restablecer/`. Sin esa entrada, el
-> enlace del correo vuelve a la portada. Para producción conviene configurar
-> SMTP propio en **Authentication > Emails**: el servicio incluido tiene
-> límites bajos.
+> **Correos de Auth:** en **Authentication > URL Configuration** agregar a
+> `Redirect URLs` las rutas de retorno del despliegue:
+> `http://localhost:3000/restablecer/`,
+> `http://localhost:3000/confirmar/`,
+> `https://<usuario>.github.io/<repositorio>/restablecer/` y
+> `https://<usuario>.github.io/<repositorio>/confirmar/`. Sin esas entradas, los
+> enlaces del correo vuelven a la portada. En el proyecto hospedado, activar
+> **Confirm email** en Authentication > Sign In / Providers > Email: el alta
+> exige que el dueño confirme antes de entrar. Para producción conviene
+> configurar SMTP propio en **Authentication > Emails**: el servicio incluido
+> tiene límites bajos.
 
 ### 5. Desplegar las Edge Functions
 
 ```bash
 npx supabase functions deploy admin-users
 npx supabase functions deploy send-reminder
+npx supabase functions deploy shop-signup
 ```
 
-`admin-users` administra las cuentas del equipo y `send-reminder` envía el
-correo. Para que el recordatorio funcione:
+`admin-users` administra las cuentas del equipo, `send-reminder` envía el correo
+del turno y `shop-signup` crea las barberías del alta autoservicio. Para que los
+correos funcionen:
 
 ```bash
 npx supabase secrets set \
   RESEND_API_KEY=re_... \
   REMINDER_FROM_EMAIL=turnos@tu-dominio.com \
-  REMINDER_FROM_NAME="En-silla"
+  REMINDER_FROM_NAME="En-silla" \
+  APP_BASE_URL=https://<usuario>.github.io/<repositorio>
 ```
 
-El dominio del remitente debe estar verificado en Resend.
+El dominio del remitente debe estar verificado en Resend. `APP_BASE_URL` es la
+URL pública del sitio (con el `basePath` si corresponde) y se usa para armar el
+retorno del enlace de confirmación. Si falta, la función intenta usar el
+`Origin` de la petición; en producción conviene fijarla.
 
 ### 6. Crear la primera barbería
 
-No hay registro público de barberías: cada alta pasa por un script con la clave
-de servicio.
+La vía normal es el alta autoservicio en `/registro`: el dueño crea su cuenta,
+confirma el correo y publica la barbería desde el panel. Para provisionar una
+barbería desde la operación (por ejemplo, una migración asistida), sigue
+disponible el script con la clave de servicio:
 
 ```bash
 npm run db:create-shop -- \
@@ -144,10 +178,14 @@ npm run db:create-shop -- \
   --admin-password "una-clave-larga"
 ```
 
-El script crea la barbería, un horario semanal por defecto y el primer
+El script crea la barbería publicada, un horario semanal por defecto y el primer
 administrador activo. Imprime la ruta pública
 `/reservar?barberia=mi-barberia`. Para modificar una barbería existente, repetir
 con `--update` y solo los campos a cambiar.
+
+El alta autoservicio, en cambio, nace con `published = false` y el perfil
+inactivo hasta que el dueño abre el enlace del correo. Para publicar se exige al
+menos un servicio activo, un día de atención y un integrante activo.
 
 ### 7. Cargar datos de demostración (opcional)
 
@@ -215,6 +253,8 @@ al final. El envío real de correo solo ocurre con `SMOKE_SEND_REMINDER="true"`.
 src/
   app/
     (public)/            Portada con buscador, reserva y confirmación
+    registro/            Alta autoservicio de barberías
+    confirmar/           Activación de la cuenta desde el correo
     login/               Acceso del equipo
     panel/               Panel privado (agenda, citas, clientes, ajustes...)
     error.tsx            Frontera de error global
@@ -236,6 +276,7 @@ supabase/
   functions/
     admin-users/         Cuentas del equipo, acotadas por barbería
     send-reminder/       Envío de recordatorios con Resend
+    shop-signup/         Alta autoservicio y confirmación por correo
 scripts/                 Provisión, seed y smoke test
 docs/                    Documentación de arquitectura y operación
 ```
@@ -245,7 +286,11 @@ docs/                    Documentación de arquitectura y operación
 ## Funcionalidades
 
 - **Búsqueda por nombre**: el visitante encuentra su barbería por nombre o slug.
-  La RPC exige al menos dos caracteres y solo devuelve barberías activas.
+  La RPC exige al menos dos caracteres y solo devuelve barberías activas y
+  publicadas.
+- **Alta autoservicio**: el dueño crea su barbería en `/registro`, confirma el
+  correo y publica cuando tiene servicio, horario y equipo. La barbería queda
+  oculta hasta entonces.
 - **Reserva pública** en pasos: servicio, barbero, día, horario y datos de
   contacto. La disponibilidad se calcula en Postgres.
 - **Confirmación inmediata** con enlace único, resumen del turno, correo
@@ -264,10 +309,10 @@ docs/                    Documentación de arquitectura y operación
 
 ## Seguridad en una frase
 
-El visitante solo puede leer datos públicos de barberías activas y reservar a
-través de funciones validadas; el personal solo ve su propia barbería por RLS; y
-los cambios de rol, la activación de cuentas y el envío de correo pasan por Edge
-Functions que verifican el rol real contra la base. Ver
+El visitante solo puede leer datos públicos de barberías activas y publicadas, y
+reservar a través de funciones validadas; el personal solo ve su propia barbería
+por RLS; y los cambios de rol, la activación de cuentas y el envío de correo
+pasan por Edge Functions que verifican el rol real contra la base. Ver
 [docs/03-SEGURIDAD.md](docs/03-SEGURIDAD.md).
 
 ---

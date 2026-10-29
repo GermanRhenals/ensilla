@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ExternalLink, Loader2, LogOut, Plus } from "lucide-react";
+import { Bell, ExternalLink, Loader2, LogOut, Megaphone, Plus } from "lucide-react";
 import { PanelNav } from "@/components/panel/panel-nav";
 import { Logo } from "@/components/ui/logo";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
@@ -143,6 +143,24 @@ function PanelShell({ children }: { children: ReactNode }) {
             <PanelNav role={profile.role} variant="mobile" />
           </div>
         </header>
+
+        {!shop.published && shop.id && (
+          <div className="border-b border-amber-200 bg-amber-50 text-amber-900">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-1.5 px-4 py-2.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+              <p className="flex items-start gap-2">
+                <Megaphone className="mt-0.5 size-4 shrink-0" />
+                Tu barbería está en borrador: todavía no aparece en el buscador
+                público.
+              </p>
+              <Link
+                href="/panel/ajustes"
+                className="font-semibold underline-offset-2 hover:underline"
+              >
+                Completar y publicar
+              </Link>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>

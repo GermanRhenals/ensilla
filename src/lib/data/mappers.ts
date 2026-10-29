@@ -95,6 +95,8 @@ export function mapShop(row: Row): Shop {
     leadTimeMin: numberValue(row.lead_time_min),
     bookingWindowDays: numberValue(row.booking_window_days) || 21,
     active: row.active === undefined ? true : boolValue(row.active),
+    // Las barberías anteriores al alta autoservicio se consideran publicadas.
+    published: row.published === undefined ? true : boolValue(row.published),
   };
 }
 

@@ -5,10 +5,13 @@
  * - Resolver la barbería del usuario autenticado (`current_shop`).
  * - Resolver una barbería pública por slug y buscarla por nombre.
  * - Leer el horario semanal y guardar los ajustes desde el panel.
+ * - Pedir el alta autoservicio y publicar u ocultar la barbería.
  *
  * SEGURIDAD
  * La tabla `shops` está protegida por RLS. El slug no se puede cambiar desde
- * el navegador y la creación de barberías pasa por un script con service role.
+ * el navegador y la creación de barberías pasa por la Edge Function
+ * `shop-signup`, que usa la clave de servicio. `published` no es una columna
+ * editable: solo cambia por la RPC `set_shop_published`.
  */
 
 import {
@@ -52,6 +55,9 @@ export const FALLBACK_SHOP: Shop = {
   leadTimeMin: 60,
   bookingWindowDays: 21,
   active: true,
+  // El fallback se usa mientras carga el panel: se asume publicada para no
+  // mostrar el aviso de borrador antes de tener el dato real.
+  published: true,
 };
 
 /** Barbería del usuario autenticado. La RPC respeta la RLS del perfil. */
@@ -157,4 +163,87 @@ export async function updateHours(
   );
 
   if (error) fail(error);
+}
+
+/**
+ * Publica u oculta la barbería en el sitio público.
+ *
+ * La RPC exige el mínimo operativo (servicio, horario e integrante activos) y
+ * es la única vía para escribir `published`; la columna no está otorgada al
+ * navegador.
+ */
+export async function setShopPublished(published: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc("set_shop_published", {
+    p_published: published,
+  });
+
+  if (error) fail(error);
+  return data === true;
+}
+
+/**
+ * Error del alta autoservicio.
+ * `code = "pending"` indica que el correo ya tiene un registro esperando
+ * confirmación, para ofrecer el reenvío en lugar de un alta nueva.
+ */
+export class ShopSignupError extends Error {
+  readonly code: string | undefined;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "ShopSignupError";
+    this.code = code;
+  }
+}
+
+type ShopSignupPayload = {
+  ok?: boolean;
+  shopSlug?: string;
+  error?: string;
+  code?: string;
+};
+
+/**
+ * Invoca la Edge Function de alta. Cuando la función responde con un código
+ * distinto de 2xx, `functions.invoke` devuelve un error genérico; el mensaje
+ * real viaja en el cuerpo y hay que leerlo de `data`.
+ */
+async function invokeShopSignup(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("shop-signup", {
+    body,
+  });
+  const payload = (data ?? {}) as ShopSignupPayload;
+
+  if (error || payload.error) {
+    throw new ShopSignupError(
+      payload.error
+        ? String(payload.error)
+        : "No pudimos completar el alta. Intentá de nuevo.",
+      payload.code ? String(payload.code) : undefined,
+    );
+  }
+
+  return payload;
+}
+
+/** Crea la barbería oculta y envía el enlace de confirmación al dueño. */
+export async function requestShopSignup(input: {
+  name: string;
+  ownerName: string;
+  email: string;
+  password: string;
+  phone?: string;
+}) {
+  const payload = await invokeShopSignup({ action: "signup", ...input });
+  return {
+    shopSlug: typeof payload.shopSlug === "string" ? payload.shopSlug : null,
+  };
+}
+
+/**
+ * Reenvía el enlace de confirmación. La función responde igual exista o no el
+ * registro para no revelar qué correos están dados de alta.
+ */
+export async function resendShopSignup(email: string) {
+  await invokeShopSignup({ action: "resend", email });
 }

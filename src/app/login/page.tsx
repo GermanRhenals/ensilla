@@ -25,18 +25,30 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(
     searchParams.get("error") ?? null,
   );
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const resetDone = searchParams.get("reset") === "1";
 
   async function enter(nextEmail: string, nextPassword: string) {
     setError(null);
+    setUnconfirmedEmail(null);
     setLoading(true);
     const { error: authError } = await supabase.auth.signInWithPassword({
       email: nextEmail,
       password: nextPassword,
     });
     if (authError) {
-      setError("Email o contraseña incorrectos.");
+      // Con las confirmaciones activas, Supabase rechaza el ingreso hasta que
+      // el dueño abra el enlace del correo. Se ofrece reenviarlo sin obligarlo
+      // a repetir el alta completa.
+      if (/email not confirmed/i.test(authError.message)) {
+        setError(
+          "Tu correo todavía no está confirmado. Revisá el enlace que te enviamos.",
+        );
+        setUnconfirmedEmail(nextEmail);
+      } else {
+        setError("Email o contraseña incorrectos.");
+      }
       setLoading(false);
       return;
     }
@@ -114,6 +126,15 @@ function LoginForm() {
             className="mt-5"
           />
 
+          {unconfirmedEmail && (
+            <Link
+              href={`/registro?reenviar=1&email=${encodeURIComponent(unconfirmedEmail)}`}
+              className="mt-3 inline-flex text-sm font-medium text-copper transition hover:text-ink"
+            >
+              Reenviar el enlace de confirmación
+            </Link>
+          )}
+
           <form
             className="mt-5 space-y-4"
             onSubmit={(event) => {
@@ -172,6 +193,16 @@ function LoginForm() {
               Entrar al panel
             </button>
           </form>
+
+          <p className="mt-5 text-center text-sm text-stone-500">
+            ¿Todavía no tenés cuenta?{" "}
+            <Link
+              href="/registro"
+              className="font-medium text-copper transition hover:text-ink"
+            >
+              Registra tu barbería
+            </Link>
+          </p>
 
           {DEMO_MODE && (
             <div className="mt-6 rounded-xl border border-dashed border-line bg-white/60 p-4">

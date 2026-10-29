@@ -390,6 +390,11 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# El alta de barberías se invoca desde el sitio público, sin sesión. La función
+# valida la entrada, limita los intentos y crea todo con la clave de servicio.
+[functions.shop-signup]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

@@ -21,8 +21,12 @@ operativo para quien edita el código.
 - Build local servido: `npm run build` y `npm start` (sirve `out/`).
 - Base de datos: `npx supabase link --project-ref <ref>` y
   `npx supabase db push`.
-- Nueva barbería: `npm run db:create-shop -- --slug ... --name ... --admin-email ...`
+- Alta normal de barbería: `/registro` (autoservicio) y confirmación por correo
+  en `/confirmar/`. La vía asistida sigue siendo
+  `npm run db:create-shop -- --slug ... --name ... --admin-email ...`
   (usa la clave de servicio; `--update` para modificarla).
+- Edge Functions: `npx supabase functions deploy admin-users`,
+  `... send-reminder` y `... shop-signup`.
 - Datos demo: `npm run db:seed:supabase` (destructivo solo con la barbería
   `en-silla`; crea usuarios de Auth).
 - Humo contra Supabase real: `npm run smoke:supabase`. El envío real de correo
@@ -34,10 +38,11 @@ operativo para quien edita el código.
 
 - Rutas públicas en `src/app/(public)`: `/`, `/reservar`,
   `/reservar/confirmacion`.
+- Alta autoservicio en `src/app/registro`; activación desde el correo en
+  `src/app/confirmar`; login en `src/app/login`; recuperación de contraseña en
+  `/recuperar` y `/restablecer`; todo el resto vive bajo `src/app/panel`.
 - `/` muestra el buscador; `/reservar?barberia=<slug>` resuelve la barbería.
   Sin slug válido se vuelve al buscador, no a un error técnico.
-- Login en `src/app/login`; recuperación de contraseña en `/recuperar` y
-  `/restablecer`; todo el resto vive bajo `src/app/panel`.
 - No hay `middleware` ni `proxy`: la protección real es RLS en Postgres. El
   panel redirige a `/login` cuando no hay perfil, pero eso es solo experiencia
   de usuario.
@@ -54,8 +59,9 @@ operativo para quien edita el código.
   carga el perfil y cierra la sesión si el perfil no existe o está inactivo.
 - La recuperación de contraseña usa `resetPasswordForEmail` y procesa el enlace
   a mano en `/restablecer`, porque el cliente tiene `detectSessionInUrl: false`.
-  La URL de retorno incluye el `basePath` y debe estar registrada en
-  Authentication > URL Configuration como `.../restablecer/`.
+  `/confirmar` hace lo mismo para el alta. Ambas URLs incluyen el `basePath` y
+  deben estar registradas en Authentication > URL Configuration como
+  `.../restablecer/` y `.../confirmar/`.
 
 ## Multi-barbería
 
@@ -66,14 +72,21 @@ operativo para quien edita el código.
   `shop_id` con FK `on delete restrict`.
 - `current_shop_id()` devuelve la barbería del perfil activo y es la base de las
   políticas RLS. No reemplazarla por un `shop_id` que venga del navegador.
-- `is_active_shop(uuid)` limita lo que `anon` puede leer.
+- `active` significa que la barbería puede operar; `published` significa que
+  aparece en el sitio público. Una barbería nueva nace `active = true` y
+  `published = false`. `current_shop_id()` no exige `published`, para que el
+  panel funcione durante el borrador.
+- `is_active_shop(uuid)` exige `active` y `published`: es el filtro de `anon`.
 - En el panel, `fetchShop()` llama a `current_shop`: no acepta `shopId` por
   parámetro. En el sitio público, `fetchShopBySlug()` y `searchShops()` cubren
   la resolución y el buscador.
 - La búsqueda exige mínimo 2 caracteres, usa `unaccent`, devuelve como máximo 12
-  barberías activas y nunca un directorio completo.
-- No hay registro público de barberías: se provisionan con
-  `scripts/create-shop.mjs` y la clave de servicio.
+  barberías publicadas y nunca un directorio completo.
+- El alta es autoservicio: `shop-signup` crea la barbería oculta con
+  `create_shop_signup` y deja el perfil `pending_signup = true`;
+  `handle_user_confirmed` lo activa al confirmar el correo.
+  `scripts/create-shop.mjs` sigue disponible para provisionar una barbería
+  publicada desde la operación.
 
 ## Reglas de negocio que no se pueden romper
 
@@ -88,6 +101,14 @@ operativo para quien edita el código.
   Van por la Edge Function `admin-users` (acciones `create`, `update`,
   `toggle`), que verifica que quien invoca sea `ADMIN` activo de la misma
   barbería y que quede al menos un administrador activo en ella.
+- **Alta de barberías**: solo por la Edge Function `shop-signup` (acciones
+  `signup` y `resend`), que llama a `create_shop_signup` y usa
+  `admin.generateLink` para no habilitar el registro público de Supabase. Un
+  correo y una cuenta por barbería (`profiles_email_key`). El perfil nace
+  inactivo y `pending_signup = true`; la confirmación del correo lo activa.
+- **Publicación**: solo por RPC `set_shop_published`, que exige al menos un
+  servicio activo, un día de atención activo y un integrante activo. `published`
+  no se escribe por `update` directo.
 - **Borrado de clientes**: solo administradores. `appointments.client_id` y
   `haircut_ideas.client_id` usan `on delete restrict`: un cliente con historial
   no se puede borrar.
@@ -156,8 +177,15 @@ operativo para quien edita el código.
   migración de Supabase se aplica antes del merge, porque el push publica el
   frontend.
 - El registro público de Supabase Auth debe estar desactivado. Las cuentas se
-  crean desde el panel o con `create-shop`. Si se habilita, los usuarios nuevos
-  nacen inactivos por la migración de endurecimiento.
+  crean desde el panel, con `create-shop` o por `shop-signup`. Si se habilita,
+  los usuarios nuevos nacen inactivos por la migración de endurecimiento.
+- `shop-signup` necesita `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`,
+  `REMINDER_FROM_NAME` y `APP_BASE_URL` en los secrets de Supabase.
+  `APP_BASE_URL` es la URL pública del sitio con el `basePath` y arma el retorno
+  del enlace de confirmación.
+- La URL `.../confirmar/` debe estar registrada en Authentication > URL
+  Configuration. El proyecto hospedado debe tener **Confirm email** activo: el
+  alta no da acceso hasta que el dueño confirma.
 - `NEXT_PUBLIC_DEMO_MODE` controla las credenciales de ejemplo del login. En
   producción debe ser `false`.
 - `send-reminder` necesita `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y,
@@ -174,6 +202,12 @@ operativo para quien edita el código.
 - No agregar una tabla del tenant sin `shop_id`, RLS y política por
   `current_shop_id()`.
 - No leer `clients` desde el sitio público: no hay política para `anon`.
+- `shops` no es legible por `anon`: el sitio público usa `search_shops` y
+  `get_public_shop`. No agregar una política de `select` pública sobre `shops`.
+- `published` y `pending_signup` no se escriben por `update` directo: van por
+  `set_shop_published` y por la confirmación del correo.
+- No habilitar el registro público de Supabase para el alta: `shop-signup` usa
+  `admin.generateLink` y la clave de servicio queda en la Edge Function.
 - No confiar en un `shop_id` recibido del navegador para autorizar: las RPC
   vuelven a validar servicio, barbero y turno.
 - El enlace de confirmación es la única credencial del cliente: no registrar

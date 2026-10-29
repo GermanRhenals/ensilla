@@ -17,6 +17,7 @@ shops (barbería / tenant)
   │      ▼              ▼
   ├── services      haircut_ideas
   ├── business_hours (7 filas por barbería)
+  ├── shop_signup_attempts (rate limit del alta)
   └── notifications (N:1 con profiles)
 
 auth.users (Supabase)
@@ -50,6 +51,12 @@ navegador.
 | `lead_time_min` | integer | Anticipación mínima: 0 a 1440 |
 | `booking_window_days` | integer | Días hacia adelante: 1 a 120 |
 | `active` | boolean | Una barbería inactiva desaparece del sitio y bloquea a su equipo; solo se cambia con la clave de servicio |
+| `published` | boolean | `false` = borrador: no aparece en el buscador ni acepta reservas públicas. Se cambia solo por RPC `set_shop_published` |
+
+`active` y `published` son estados distintos: una barbería nueva puede operar en
+su panel (`active = true`) mientras sigue oculta al público
+(`published = false`). El borrador no se publica hasta tener al menos un servicio
+activo, un día de atención activo y un integrante activo.
 
 La tabla reemplaza a `shop_setting`. La migración multi-barbería copió la
 barbería existente y eliminó la tabla monolocal.
@@ -68,16 +75,35 @@ Extiende `auth.users`. Un perfil no existe sin usuario de Auth.
 | `phone`, `bio` | text | Opcionales |
 | `color` | text | Color de agenda, por defecto `#c2703d` |
 | `active` | boolean | Inactivo = no puede entrar ni recibir turnos nuevos |
+| `pending_signup` | boolean | Cuenta creada por el alta autoservicio que aún no confirmó el correo; la activación depende de esta columna |
 
 Invariantes:
 
-- Un usuario que se registra por su cuenta nace con `active = false` y en la
-  barbería indicada en `raw_user_meta_data.shop_id`; si falta, en la más
-  antigua.
+- El alta autoservicio crea el perfil con `active = false` y
+  `pending_signup = true`. `handle_user_confirmed` lo activa cuando el dueño
+  confirma el correo. La activación no se basa en `raw_user_meta_data`, que el
+  usuario puede modificar.
+- `handle_new_user` toma `shop_id` de los metadatos; si falta, rechaza la
+  creación en lugar de asignar la barbería más antigua.
 - Siempre debe quedar al menos un `ADMIN` activo por barbería; lo garantiza la
   Edge Function, no la base.
-- `role`, `active` y `shop_id` no son editables por el cliente (privilegios de
-  columna).
+- `role`, `active`, `shop_id` y `pending_signup` no son editables por el cliente
+  (privilegios de columna).
+
+### `shop_signup_attempts`
+
+Registro de intentos del alta autoservicio para limitar abuso por correo e IP.
+
+| Columna | Tipo | Notas |
+| --- | --- | --- |
+| `id` | uuid | PK |
+| `email` | text | Correo normalizado a minúsculas |
+| `ip` | text | IP de origen, opcional |
+| `action` | text | `signup` o `resend` |
+| `created_at` | timestamptz | Marca del intento |
+
+Solo la usa la Edge Function `shop-signup` con la clave de servicio. No tiene
+políticas para `anon` ni `authenticated`.
 
 ### `business_hours`
 
@@ -209,11 +235,15 @@ filtrada por `shop_id`.
 
 | Función | Quién | Qué garantiza |
 | --- | --- | --- |
-| `search_shops(text)` | `anon`, `authenticated` | Busca barberías activas por nombre o slug ignorando acentos, signos y espacios ("ensilla" encuentra "En-silla"); mínimo 2 caracteres y tope de 12 |
-| `get_public_shop(text)` | `anon`, `authenticated` | Configuración pública de una barbería activa por slug |
+| `search_shops(text)` | `anon`, `authenticated` | Busca barberías activas y publicadas por nombre o slug ignorando acentos, signos y espacios ("ensilla" encuentra "En-silla"); mínimo 2 caracteres y tope de 12 |
+| `get_public_shop(text)` | `anon`, `authenticated` | Configuración pública de una barbería activa y publicada por slug |
 | `current_shop()` | `authenticated` | Configuración de la barbería del perfil autenticado |
-| `current_shop_id()` | `anon`, `authenticated` | `shop_id` del perfil activo en una barbería activa; base de las políticas RLS |
-| `is_active_shop(uuid)` | `anon`, `authenticated` | Verdadero solo para barberías publicadas |
+| `current_shop_id()` | `anon`, `authenticated` | `shop_id` del perfil activo en una barbería activa; base de las políticas RLS. No exige `published` |
+| `is_active_shop(uuid)` | `anon`, `authenticated` | Verdadero solo para barberías activas y publicadas |
+| `shop_slug_from_name(text)` | interno | Deriva el slug del nombre; base del alta |
+| `create_shop_signup(...)` | interno (solo `service_role`) | Crea la barbería oculta y su horario inicial; resuelve colisiones de slug y valida el correo |
+| `confirm_shop_signup()` | `authenticated` | Activa el perfil pendiente del usuario autenticado que ya confirmó el correo |
+| `set_shop_published(boolean)` | `authenticated` | Publica u oculta la barbería; exige servicio, horario y equipo activos para publicar |
 | `get_availability(uuid, date, uuid, uuid)` | `anon`, `authenticated` | Huecos reales según barbería, horario, turnos, bloqueos, anticipación y ventana |
 | `create_public_booking(uuid, uuid, uuid, timestamptz, text, text, text, text, text, text)` | `anon`, `authenticated` | Alta pública validada, cliente por barbería, anti-abuso y notificación |
 | `create_staff_appointment(...)` | `authenticated` | Alta desde el panel; deduce la barbería con `current_shop_id()` |
@@ -222,7 +252,8 @@ filtrada por `shop_id`.
 | `is_staff()`, `is_admin()`, `current_app_role()` | `anon`, `authenticated` | Helpers de RLS |
 | `normalize_phone(text, text)` | interno | Normalización compartida con el frontend |
 | `booking_validate(...)` | interno | Validación previa de barbería, servicio, barbero y horario |
-| `handle_new_user()` | trigger | Crea el perfil inactivo en la barbería indicada por metadatos |
+| `handle_new_user()` | trigger | Crea el perfil inactivo en la barbería indicada por metadatos; sin fallback |
+| `handle_user_confirmed()` | trigger | Activa el perfil pendiente al confirmar el correo |
 | `handle_user_email_change()` | trigger | Sincronización de correo con Auth |
 | `set_updated_at()` | trigger | Actualización de `updated_at` |
 
@@ -231,10 +262,27 @@ Las funciones internas tienen `execute` revocado para `public`, `anon` y
 
 ## Provisión de barberías
 
-No hay alta pública. El script `scripts/create-shop.mjs` usa la clave de
-servicio para:
+La vía normal es el alta autoservicio: `/registro` llama a la Edge Function
+`shop-signup`, que ejecuta `create_shop_signup` con la clave de servicio:
 
-1. Crear o actualizar la fila de `shops` por slug.
+1. Valida nombre, responsable, correo y contraseña, y aplica el rate limit de
+   `shop_signup_attempts`.
+2. Crea la fila de `shops` con `published = false`, un slug derivado del nombre
+   y el horario inicial.
+3. Crea el usuario de Auth con `admin.generateLink({ type: "signup" })`. El
+   trigger `handle_new_user` crea el perfil inactivo y la función lo deja como
+   `ADMIN`, `active = false`, `pending_signup = true`.
+4. Envía el enlace de confirmación por Resend.
+5. Si falla la cuenta, el perfil o el correo, revierte la barbería y el usuario.
+
+Al abrir el enlace, `/confirmar/` llama a `confirm_shop_signup` y activa el
+perfil. Después el dueño completa servicios, horario y equipo, y publica con
+`set_shop_published(true)`.
+
+Para una provisión asistida (por ejemplo, una migración de datos) sigue
+disponible `scripts/create-shop.mjs`, que usa la clave de servicio para:
+
+1. Crear o actualizar la fila de `shops` por slug, ya publicada.
 2. Crear el horario semanal por defecto si la barbería no tiene uno.
 3. Crear el primer usuario administrador con `shop_id` en los metadatos y
    activar su perfil.
@@ -259,6 +307,7 @@ el panel.
 | `20261027210000_shop_locale.sql` | Idioma y país de WhatsApp por barbería |
 | `20261028000000_security_hardening.sql` | Privilegios por columna, anti-abuso, integridad y autoregistro inactivo |
 | `20261029000000_multi_shop.sql` | `shops`, `shop_id` en todo el tenant, RLS por barbería, búsqueda pública, correo posterior y confirmación con barbería |
+| `20261029120000_shop_signup.sql` | `published`, `pending_signup`, `shop_signup_attempts`, alta autoservicio, publicación, confirmación del dueño y búsqueda solo de publicadas |
 
 Reglas:
 

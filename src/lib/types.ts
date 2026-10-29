@@ -33,6 +33,11 @@ export type Shop = {
   leadTimeMin: number;
   bookingWindowDays: number;
   active: boolean;
+  /**
+   * Una barbería activa puede operar en el panel; publicada además aparece en
+   * el sitio público. El alta autoservicio nace con `published = false`.
+   */
+  published: boolean;
 };
 
 /**

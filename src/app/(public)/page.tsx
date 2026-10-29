@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  AtSign,
   CalendarCheck,
   Check,
   Clock3,
@@ -283,21 +282,21 @@ export default function HomePage() {
           <div className="rounded-2xl border border-line bg-cream/60 p-5 sm:p-6">
             <p className="flex items-center gap-2 font-semibold">
               <Store className="size-4 text-copper" />
-              Acceso del equipo
+              Sumá tu barbería
             </p>
             <p className="mt-2 text-sm leading-relaxed text-stone-500">
-              Si ya tenés una cuenta, ingresá al panel para administrar tu
-              barbería. Las cuentas nuevas las crea un administrador; no hay
-              registro público.
+              Creá la cuenta del dueño y la agenda de tu local en minutos. La
+              barbería queda en borrador hasta que cargues tus servicios,
+              horarios y equipo, y la publiques desde el panel.
             </p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <Link href="/login" className="btn-primary flex-1">
-                Ingresar al panel
+              <Link href="/registro" className="btn-primary flex-1">
+                Abrir mi barbería
                 <ArrowRight className="size-4" />
               </Link>
-              <Link href="/#buscar" className="btn-secondary flex-1">
-                <AtSign className="size-4" />
-                Buscar una barbería
+              <Link href="/login" className="btn-secondary flex-1">
+                <Store className="size-4" />
+                Ingresar al panel
               </Link>
             </div>
           </div>
