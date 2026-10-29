@@ -25,7 +25,7 @@ intermedia propia.
 │  Auth       → sesiones       │
 │  Edge Fn    → cuentas        │
 │  Edge Fn    → alta           │
-│  Edge Fn    → recordatorios  │────────▶ Resend (correo)
+│  Edge Fn    → recordatorios  │────────▶ Brevo o Resend
 └──────────────┬───────────────┘
                ▼
         Postgres 17
@@ -96,7 +96,7 @@ función en `src/lib/data`.
 /reservar/confirmacion?id=<uuid>
   ├─ fetchConfirmation() ─RPC▶ get_booking_confirmation(uuid)
   ├─ saveBookingEmail()  ─RPC▶ set_booking_email(uuid, correo)
-  └─ sendBookingReminder() ─Edge Function▶ send-reminder → Resend
+  └─ sendBookingReminder() ─Edge Function▶ send-reminder → Brevo o Resend
 ```
 
 Detalles importantes:
@@ -123,7 +123,7 @@ Detalles importantes:
         ├─ admin.generateLink(type signup) → usuario de Auth
         │     └─ handle_new_user crea el perfil inactivo
         ├─ el perfil queda ADMIN, active = false, pending_signup = true
-        └─ Resend envía el enlace a /confirmar/
+        └─ el proveedor envía el enlace a /confirmar/
               │
               ▼
 /confirmar/  (procesa tokens a mano, como /restablecer)
@@ -243,11 +243,11 @@ src/lib/data/
 - La publicación es un RPC (`set_shop_published`) y no un `update`: exige
   servicio, horario y equipo, y no se puede forzar desde el navegador.
 
-### Recordatorio con Resend
+### Recordatorio por correo
 
 - La Edge Function `send-reminder` recibe el UUID de la reserva, lee el correo
-  con la clave de servicio, envía con Resend y marca `reminder_sent_at`.
-- El navegador nunca recibe el correo del cliente ni la clave de Resend.
+  con la clave de servicio, envía por Brevo o Resend y marca `reminder_sent_at`.
+- El navegador nunca recibe el correo del cliente ni las claves del proveedor.
 - Tiene un enfriamiento de dos minutos para que el botón no se convierta en un
   amplificador de spam.
 

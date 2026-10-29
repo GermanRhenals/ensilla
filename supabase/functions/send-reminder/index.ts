@@ -3,7 +3,7 @@
  *
  * RESPONSABILIDAD
  * Recibir el UUID de un turno, componer el correo con los datos de su
- * barbería y enviarlo con Resend. Después marca `reminder_sent_at`.
+ * barbería y enviarlo. Después marca `reminder_sent_at`.
  *
  * SEGURIDAD
  * - El UUID de la reserva es la credencial, igual que en la página de
@@ -13,10 +13,12 @@
  * - Solo se envían recordatorios de turnos pendientes o confirmados.
  * - Se evita el reenvío inmediato para no convertir el botón en un amplificador
  *   de spam.
- * - La clave de Resend vive en el entorno de Supabase.
+ * - La clave de servicio y las del proveedor de correo viven en el entorno de
+ *   Supabase.
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { hasEmailProvider, sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +31,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Espera mínima entre envíos del mismo turno. */
-const RESEND_COOLDOWN_MS = 2 * 60 * 1000;
+const REMINDER_COOLDOWN_MS = 2 * 60 * 1000;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -57,7 +59,6 @@ Deno.serve(async (request) => {
 
   const url = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const resendKey = Deno.env.get("RESEND_API_KEY");
   const fromEmail = Deno.env.get("REMINDER_FROM_EMAIL");
   const fromName = Deno.env.get("REMINDER_FROM_NAME");
 
@@ -104,7 +105,7 @@ Deno.serve(async (request) => {
 
   if (appointment.reminder_sent_at) {
     const sentAt = new Date(String(appointment.reminder_sent_at)).getTime();
-    if (Number.isFinite(sentAt) && Date.now() - sentAt < RESEND_COOLDOWN_MS) {
+    if (Number.isFinite(sentAt) && Date.now() - sentAt < REMINDER_COOLDOWN_MS) {
       return json({ ok: true, alreadySent: true });
     }
   }
@@ -150,7 +151,7 @@ Deno.serve(async (request) => {
   if (!service || !barber || !shop) {
     return json({ error: "La reserva está incompleta." }, 500);
   }
-  if (!resendKey || !fromEmail) {
+  if (!hasEmailProvider() || !fromEmail) {
     return json(
       { error: "El envío de correos todavía no está configurado." },
       500,
@@ -240,23 +241,17 @@ Deno.serve(async (request) => {
     "Si necesitás cambiar o cancelar el turno, comunicate con la barbería.",
   ].join("\n");
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: `${fromName || shopName} <${fromEmail}>`,
-      to: [String(client.email)],
-      subject,
-      html,
-      text,
-    }),
+  const sent = await sendEmail({
+    to: String(client.email),
+    subject,
+    html,
+    text,
+    fromName: fromName || shopName,
+    fromEmail,
   });
 
-  if (!response.ok) {
-    // El detalle de Resend puede contener direcciones de correo: no se
+  if (!sent) {
+    // El detalle del proveedor puede contener direcciones de correo: no se
     // devuelve al navegador ni se registra.
     return json(
       { error: "No se pudo enviar el correo. Intentá de nuevo más tarde." },

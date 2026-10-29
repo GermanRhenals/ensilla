@@ -124,8 +124,8 @@ operativo para quien edita el código.
   `CONFIRMED`, únicamente completa un correo faltante y nunca devuelve el correo
   guardado.
 - **Recordatorios**: solo por la Edge Function `send-reminder`, con enfriamiento
-  de 2 minutos y un único destinatario. El navegador nunca ve el correo ni la
-  clave de Resend.
+  de 2 minutos y un único destinatario. El navegador nunca ve el correo ni las
+  claves del proveedor.
 - **Notificaciones**: las crea el backend (RPC `security definer`). El cliente
   solo puede leer las propias y marcarlas como leídas.
 
@@ -179,19 +179,22 @@ operativo para quien edita el código.
 - El registro público de Supabase Auth debe estar desactivado. Las cuentas se
   crean desde el panel, con `create-shop` o por `shop-signup`. Si se habilita,
   los usuarios nuevos nacen inactivos por la migración de endurecimiento.
-- `shop-signup` necesita `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`,
-  `REMINDER_FROM_NAME` y `APP_BASE_URL` en los secrets de Supabase.
-  `APP_BASE_URL` es la URL pública del sitio con el `basePath` y arma el retorno
-  del enlace de confirmación.
+- `shop-signup` necesita `BREVO_API_KEY` o `RESEND_API_KEY`,
+  `REMINDER_FROM_EMAIL`, `REMINDER_FROM_NAME` y `APP_BASE_URL` en los secrets de
+  Supabase. `APP_BASE_URL` es la URL pública del sitio con el `basePath` y arma
+  el retorno del enlace de confirmación.
 - La URL `.../confirmar/` debe estar registrada en Authentication > URL
   Configuration. El proyecto hospedado debe tener **Confirm email** activo: el
   alta no da acceso hasta que el dueño confirma.
 - `NEXT_PUBLIC_DEMO_MODE` controla las credenciales de ejemplo del login. En
   producción debe ser `false`.
-- `send-reminder` necesita `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y,
-  opcionalmente, `REMINDER_FROM_NAME` en los secrets de Supabase. El remitente
-  debe pertenecer a un dominio verificado en Resend.
-- La clave de servicio y la de Resend nunca llevan prefijo `NEXT_PUBLIC_`.
+- `send-reminder` y `shop-signup` envían por Brevo si existe `BREVO_API_KEY`, y
+  por Resend si existe `RESEND_API_KEY`. Siempre necesitan
+  `REMINDER_FROM_EMAIL` y, opcionalmente, `REMINDER_FROM_NAME` en los secrets de
+  Supabase. Brevo no exige dominio pero reescribe el remitente por uno suyo;
+  Resend solo entrega a cualquier destinatario con el dominio verificado.
+- La clave de servicio y las del proveedor de correo nunca llevan prefijo
+  `NEXT_PUBLIC_`.
 
 ## Trampas conocidas
 

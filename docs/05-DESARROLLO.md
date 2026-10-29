@@ -230,9 +230,9 @@ Si la operación no puede expresarse con `insert`/`update` seguros:
 ## Provisión de barberías
 
 La vía normal en desarrollo es el alta autoservicio en `/registro`; requiere la
-Edge Function `shop-signup` desplegada y los secretos de Resend. La barbería nace
-oculta y se publica desde **Panel > Ajustes** cuando tiene servicio, horario y
-equipo.
+Edge Function `shop-signup` desplegada y los secretos del proveedor de correo. La
+barbería nace oculta y se publica desde **Panel > Ajustes** cuando tiene
+servicio, horario y equipo.
 
 Para crear una barbería ya publicada sin pasar por el correo (por ejemplo, una
 demo o una migración asistida):
@@ -262,18 +262,21 @@ hace esta comprobación con una barbería temporal que luego elimina.
 ## Recordatorios y correo de alta
 
 - La Edge Function `send-reminder` recibe `{ appointmentId }`, lee el correo con
-  la clave de servicio y envía con Resend.
+  la clave de servicio y envía.
 - La Edge Function `shop-signup` usa el mismo remitente para el enlace de
   confirmación del alta.
-- Secretos: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`, opcional
+- Ambas comparten `_shared/email.ts`: envían por Brevo si existe `BREVO_API_KEY`
+  y por Resend si existe `RESEND_API_KEY`.
+- Secretos: `BREVO_API_KEY` o `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`, opcional
   `REMINDER_FROM_NAME` y `APP_BASE_URL`. Se configuran con
   `npx supabase secrets set`.
-- El remitente debe pertenecer a un dominio verificado en Resend.
+- Brevo no exige dominio propio, pero reescribe el remitente por uno suyo. Con
+  Resend el remitente debe pertenecer a un dominio verificado.
 - El enfriamiento de 2 minutos vive en la función; no duplicar esa regla en el
   navegador.
-- Nunca devolver el correo del cliente, el enlace de confirmación ni la clave de
-  Resend.
-- Para desarrollo sin dominio verificado, usar el remitente de pruebas de Resend
+- Nunca devolver el correo del cliente, el enlace de confirmación ni las claves
+  del proveedor.
+- Para desarrollo sin dominio, usar Brevo con un remitente verificado por código
   y un correo propio.
 
 ## Comentarios
@@ -364,7 +367,7 @@ escalada de privilegios. El envío real de correo queda opt-in con
 | La búsqueda no devuelve la barbería | Menos de 2 caracteres, barbería inactiva o no publicada | Revisar `shops.active`, `shops.published` y el término |
 | No se puede publicar desde Ajustes | Falta servicio, horario o integrante activo | Completar el checklist antes de publicar |
 | El perfil queda inactivo tras confirmar | `pending_signup` no coincide o la cuenta no es la que abrió el enlace | Revisar `profiles.pending_signup` y volver a pedir el enlace |
-| `send-reminder` responde 500 | Faltan secretos de Resend o el dominio no está verificado | Configurar secretos y revisar Resend |
+| `send-reminder` responde 500 | Faltan secretos del proveedor o el remitente no está verificado | Configurar secretos y revisar Brevo o Resend |
 
 ## Pull requests
 

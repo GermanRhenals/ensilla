@@ -9,15 +9,17 @@
  * - No confía en ningún `shop_id` del navegador: la barbería se crea en el
  *   servidor y el perfil se asocia a ese id.
  * - El registro libre de Supabase Auth sigue cerrado. El usuario se crea con
- *   `admin.generateLink({ type: "signup" })` y el enlace se envía con Resend.
+ *   `admin.generateLink({ type: "signup" })` y el enlace se envía por correo.
  * - El perfil nace inactivo y `pending_signup = true`; el trigger de Auth lo
  *   activa cuando el correo queda confirmado.
  * - Un correo pertenece a una sola cuenta. Se comprueba antes de crear nada.
  * - Límite por correo e IP para que el alta no sea un amplificador de correo.
- * - La clave de servicio y la de Resend viven solo en el entorno de Supabase.
+ * - La clave de servicio y las del proveedor de correo viven solo en el
+ *   entorno de Supabase.
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { hasEmailProvider, sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -87,7 +89,6 @@ Deno.serve(async (request) => {
 
   const url = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const resendKey = Deno.env.get("RESEND_API_KEY");
   const fromEmail = Deno.env.get("REMINDER_FROM_EMAIL");
   const fromName = Deno.env.get("REMINDER_FROM_NAME");
 
@@ -139,7 +140,7 @@ Deno.serve(async (request) => {
     shopName: string,
     actionLink: string,
   ) {
-    if (!resendKey || !fromEmail) {
+    if (!hasEmailProvider() || !fromEmail) {
       return { ok: false, error: "El envío de correos no está configurado." };
     }
 
@@ -188,24 +189,18 @@ Deno.serve(async (request) => {
       "Si no pediste esta cuenta, ignorá el mensaje.",
     ].join("\n");
 
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: `${fromName || "En-silla"} <${fromEmail}>`,
-        to: [to],
-        subject,
-        html,
-        text,
-      }),
+    const sent = await sendEmail({
+      to,
+      subject,
+      html,
+      text,
+      fromName: fromName || "En-silla",
+      fromEmail,
     });
 
-    if (!response.ok) {
-      // El detalle de Resend puede contener direcciones: no se devuelve ni se
-      // registra.
+    if (!sent) {
+      // El detalle del proveedor puede contener direcciones: no se devuelve ni
+      // se registra.
       return { ok: false, error: "No se pudo enviar el correo." };
     }
 

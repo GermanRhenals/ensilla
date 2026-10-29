@@ -50,31 +50,51 @@ puede pisar la operación.
    `shop-signup` también necesita la clave de servicio y las variables de correo
    del paso siguiente.
 
-### 2. Correo transaccional (Resend)
+### 2. Correo transaccional (Brevo o Resend)
 
-1. Crear una cuenta en <https://resend.com> y verificar el dominio desde el que
-   se enviarán los recordatorios (registros DNS `SPF` y `DKIM`).
-2. Crear una API key con permiso de envío.
-3. Configurar los secretos de la función con el proyecto vinculado:
+Hay dos caminos. Brevo sirve para operar sin dominio propio; Resend da mejor
+remitente cuando ya hay uno verificado.
+
+**Brevo, sin dominio**
+
+1. Crear una cuenta en <https://www.brevo.com>.
+2. En Settings > Senders, agregar el correo remitente y confirmar el código de
+   seis dígitos que llega a esa casilla.
+3. Crear una API key en Settings > SMTP & API > API Keys.
+4. Configurar los secretos:
 
    ```bash
    npx supabase secrets set \
-     RESEND_API_KEY=re_... \
-     REMINDER_FROM_EMAIL=turnos@tu-dominio.com \
+     BREVO_API_KEY=xkeysib-... \
+     REMINDER_FROM_EMAIL=tu-correo@gmail.com \
      REMINDER_FROM_NAME="En-silla" \
      APP_BASE_URL=https://<usuario>.github.io/<repositorio>
    ```
 
-4. Volver a desplegar `send-reminder` y `shop-signup` después de cambiar
+   Brevo reescribe el remitente por uno de su dominio para cumplir con SPF y
+   DMARC, así que el "De" no mostrará el dominio propio. El plan gratuito
+   permite 300 correos por día.
+
+**Resend, con dominio**
+
+1. Crear una cuenta en <https://resend.com> y verificar el dominio desde el que
+   se enviarán los recordatorios (registros DNS `SPF` y `DKIM`).
+2. Crear una API key con permiso de envío.
+3. Configurar `RESEND_API_KEY`, `REMINDER_FROM_EMAIL`, `REMINDER_FROM_NAME` y
+   `APP_BASE_URL` con el mismo comando.
+
+**En ambos casos**
+
+1. Volver a desplegar `send-reminder` y `shop-signup` después de cambiar
    secretos.
-5. Probar el envío con una reserva real de prueba desde la confirmación o desde
+2. Probar el envío con una reserva real de prueba desde la confirmación o desde
    el detalle de la cita en el panel, y con un alta completa desde `/registro`.
 
-Sin `RESEND_API_KEY` y `REMINDER_FROM_EMAIL`, el botón de recordatorio responde
-que el envío todavía no está configurado. Las reservas siguen funcionando. El
-alta autoservicio tampoco puede enviar el enlace de confirmación. `APP_BASE_URL`
-debe incluir el `basePath` del despliegue; si falta, la función intenta usar el
-`Origin` de la petición.
+Sin `BREVO_API_KEY` ni `RESEND_API_KEY`, o sin `REMINDER_FROM_EMAIL`, el botón de
+recordatorio responde que el envío todavía no está configurado. Las reservas
+siguen funcionando. El alta autoservicio tampoco puede enviar el enlace de
+confirmación. `APP_BASE_URL` debe incluir el `basePath` del despliegue; si falta,
+la función intenta usar el `Origin` de la petición.
 
 ### 3. Primera barbería
 
@@ -188,7 +208,7 @@ respaldo previo.
 
 1. El dueño completa `/registro`.
 2. `shop-signup` crea la barbería oculta y el perfil pendiente, y envía el
-   enlace por Resend a `/confirmar/`.
+   enlace por correo a `/confirmar/`.
 3. Al abrir el enlace, `/confirmar/` procesa los tokens y activa el perfil.
 4. El dueño entra al panel, completa servicio, horario y equipo, y publica.
 
@@ -197,7 +217,7 @@ Si el correo no llega:
 1. Revisar spam y que la cuenta exista en `auth.users` con
    `profiles.pending_signup = true`.
 2. Confirmar que `APP_BASE_URL` y `.../confirmar/` están bien configurados.
-3. Revisar el límite de envíos de Supabase Auth y de Resend.
+3. Revisar el límite de envíos de Supabase Auth y del proveedor de correo.
 4. Pedir el reenvío desde `/registro` (acción `resend` de `shop-signup`). La
    respuesta es uniforme para no revelar si el correo existe.
 
@@ -248,15 +268,14 @@ Sin servidor propio, la vigilancia se concentra en cuatro lugares:
 1. **GitHub Actions**: fallos de CI o del despliegue.
 2. **Supabase > Reports / Logs**: errores de API, latencia, uso de base.
 3. **Supabase > Auth**: inicios de sesión fallidos, cuentas nuevas.
-4. **Resend > Emails**: rebotes, quejas y estado de los envíos.
+4. **Brevo o Resend**: rebotes, quejas y estado de los envíos.
 
 Señales de alerta:
 
 - Aumento repentino de reservas con teléfonos distintos y nombres vacíos: spam.
 - Errores 401/403 en el panel: sesión o perfil desactivado.
 - Errores 500 en RPC: migración faltante o regla de negocio nueva.
-- Recordatorios que no llegan: dominio de Resend sin verificar o secreto
-  faltante.
+- Recordatorios que no llegan: remitente sin verificar o secreto faltante.
 - Aumento anormal de altas en borrador o de `shop_signup_attempts`: spam del
   formulario de registro.
 - Crecimiento anormal de `notifications`: revisar si falta poda.
@@ -275,22 +294,23 @@ Señales de alerta:
 - Revisar turnos `PENDING` sin confirmar.
 - Verificar que los servicios y precios de cada catálogo estén vigentes.
 - Revisar accesos del equipo por barbería: altas, bajas y roles.
-- Revisar el consumo y la reputación del dominio en Resend.
+- Revisar el consumo y la reputación del remitente en el proveedor de correo.
 
 ### Mensual
 
 - Exportar un respaldo y guardarlo fuera de Supabase.
 - Revisar `auth.users` contra el plantel real de cada barbería.
-- Revisar costos de Supabase, GitHub y Resend.
+- Revisar costos de Supabase, GitHub y del proveedor de correo.
 - Actualizar dependencias menores y correr las tres verificaciones.
 
 ### Anual
 
 - Restaurar un respaldo en un proyecto de prueba.
 - Revisar este documento y el de seguridad.
-- Rotar las claves de servicio y de Resend si hubo cambios de personal.
-- Confirmar que al menos dos personas pueden administrar Supabase, GitHub y
-  Resend.
+- Rotar las claves de servicio y del proveedor de correo si hubo cambios de
+  personal.
+- Confirmar que al menos dos personas pueden administrar Supabase, GitHub y el
+  proveedor de correo.
 
 ## Traspaso de la operación
 
@@ -298,7 +318,8 @@ Para que el sistema no dependa de una sola persona, entregar:
 
 - [ ] Acceso al repositorio de GitHub (rol `Maintainer` como mínimo).
 - [ ] Acceso al proyecto de Supabase (rol `Owner` o `Administrator`).
-- [ ] Acceso a la cuenta de Resend y al DNS del dominio de envío.
+- [ ] Acceso a la cuenta del proveedor de correo (Brevo o Resend) y, si aplica,
+      al DNS del dominio de envío.
 - [ ] Acceso al correo asociado a las cuentas.
 - [ ] Contraseña maestra del gestor de secretos.
 - [ ] Este repositorio y la carpeta `docs/`.
@@ -316,7 +337,7 @@ barbería de prueba, desplegar un cambio menor y revertirlo sin ayuda.
 | --- | --- | --- |
 | Supabase | `Developer` (leer datos, ver logs) | `Owner`/`Administrator` |
 | GitHub | `Write` (ramas y PR) | `Admin` (Pages, secrets) |
-| Resend | `Viewer` (ver envíos) | `Admin` (API keys, dominio) |
+| Brevo o Resend | `Viewer` (ver envíos) | `Admin` (API keys, remitente) |
 | Panel En-silla | `BARBER` de una barbería | `ADMIN` de una barbería |
 
 El panel no reemplaza los permisos de Supabase: alguien con acceso al proyecto
@@ -330,7 +351,8 @@ cuentas con doble factor.
 - **GitHub Actions**: gratuito dentro del plan para este volumen.
 - **Supabase**: el plan gratuito alcanza para desarrollo y para las primeras
   barberías. Producción con respaldos automáticos requiere plan pago.
-- **Resend**: el plan gratuito alcanza para pruebas y volumen bajo; un plan pago
+- **Brevo**: el plan gratuito permite 300 correos por día y no exige dominio.
+  **Resend**: el plan gratuito alcanza para pruebas y volumen bajo; un plan pago
   cubre más envíos y mejor soporte.
 - No hay costos de servidor ni CDN adicional.
 
@@ -347,11 +369,11 @@ cuentas con doble factor.
 | El sitio publicado da 404 | `NEXT_PUBLIC_BASE_PATH` incorrecto | Ajustar el workflow y volver a desplegar |
 | Error al invocar `admin-users` | Función no desplegada o secreto faltante | `npx supabase functions deploy admin-users` |
 | Error al invocar `shop-signup` | Función no desplegada o secreto faltante | `npx supabase functions deploy shop-signup` y revisar secretos |
-| El alta responde "no se pudo crear" | Correo ya usado, rate limit o fallo de Resend | Revisar `profiles.email`, `shop_signup_attempts` y Resend > Emails |
+| El alta responde "no se pudo crear" | Correo ya usado, rate limit o fallo del proveedor | Revisar `profiles.email`, `shop_signup_attempts` y el panel del proveedor |
 | No se puede publicar la barbería | Falta servicio, horario o integrante activo | Completar el checklist de Panel > Ajustes |
 | El enlace de confirmación vuelve a la portada | Falta la URL en Redirect URLs | Agregar `<sitio>/confirmar/` en Authentication > URL Configuration |
-| "El envío de correos todavía no está configurado" | Faltan secretos de Resend | Configurar `RESEND_API_KEY` y `REMINDER_FROM_EMAIL` |
-| El recordatorio no llega | Dominio sin verificar, rebote o correo inválido | Revisar Resend > Emails y la ficha del cliente |
+| "El envío de correos todavía no está configurado" | Faltan secretos del proveedor | Configurar `BREVO_API_KEY` o `RESEND_API_KEY`, más `REMINDER_FROM_EMAIL` |
+| El recordatorio no llega | Remitente sin verificar, rebote o correo inválido | Revisar el panel del proveedor y la ficha del cliente |
 | El enlace de recuperación vuelve a la portada | Falta la URL en Redirect URLs | Agregar `<sitio>/restablecer/` en Authentication > URL Configuration |
 | No llega el correo de recuperación | SMTP incluido con límites, spam o cuenta inexistente | Configurar SMTP propio y revisar la carpeta de spam |
 | Un usuario ve datos de otra barbería | `profiles.shop_id` incorrecto | Corregir el perfil con la clave de servicio y revisar políticas |

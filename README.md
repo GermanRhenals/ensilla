@@ -20,7 +20,7 @@ navegador**.
 | Interfaz | Next.js 16 (App Router, export estático), React 19, TypeScript estricto |
 | Estilos | Tailwind CSS v4 (tokens en `src/app/globals.css`) |
 | Datos y autenticación | Supabase (Postgres 17, Auth, RLS, RPC, Edge Functions) |
-| Correo | Resend, a través de las Edge Functions `shop-signup` y `send-reminder` |
+| Correo | Brevo o Resend, a través de las Edge Functions `shop-signup` y `send-reminder` |
 | Despliegue | GitHub Pages (sitio estático) + GitHub Actions |
 | Fechas y zonas horarias | `date-fns` + `date-fns-tz` |
 
@@ -60,7 +60,7 @@ El alta de una barbería también es autoservicio:
 Edge Function shop-signup
       ├─ crea la barbería oculta (published = false)
       ├─ crea la cuenta del dueño inactiva
-      └─ envía un enlace de confirmación con Resend
+      └─ envía un enlace de confirmación por correo
       ↓
 /confirmar/  →  activa la cuenta
       ↓
@@ -68,9 +68,9 @@ Edge Function shop-signup
 ```
 
 El registro libre de Supabase Auth sigue desactivado: la Edge Function usa la
-clave de servicio y el enlace de confirmación viaja por Resend. Una barbería
-recién creada no aparece en el buscador hasta que el dueño completa el mínimo
-operativo y la publica.
+clave de servicio y el enlace de confirmación viaja por el proveedor de correo.
+Una barbería recién creada no aparece en el buscador hasta que el dueño completa
+el mínimo operativo y la publica.
 
 ---
 
@@ -81,7 +81,7 @@ operativo y la publica.
 - Node.js 22 o superior.
 - Una cuenta de Supabase y el CLI (`npx supabase`).
 - Git.
-- Opcional: una cuenta de Resend para probar recordatorios reales.
+- Opcional: una cuenta de Brevo o Resend para probar recordatorios reales.
 
 ### 2. Instalar dependencias
 
@@ -108,7 +108,10 @@ Completar en `.env`:
 Dejar `NEXT_PUBLIC_DEMO_MODE="false"` salvo que se quiera mostrar las cuentas de
 demostración en el login.
 
-Los secretos de Resend no se usan en el build: se configuran en Supabase.
+Los secretos del proveedor de correo no se usan en el build: se configuran en
+Supabase. Con `BREVO_API_KEY` el envío sale por Brevo, que no exige dominio
+propio y reescribe el remitente por uno suyo; con `RESEND_API_KEY` sale por
+Resend, que solo entrega a cualquier destinatario si el dominio está verificado.
 
 ### 4. Crear el esquema
 
@@ -151,16 +154,20 @@ correos funcionen:
 
 ```bash
 npx supabase secrets set \
-  RESEND_API_KEY=re_... \
+  BREVO_API_KEY=xkeysib-... \
   REMINDER_FROM_EMAIL=turnos@tu-dominio.com \
   REMINDER_FROM_NAME="En-silla" \
   APP_BASE_URL=https://<usuario>.github.io/<repositorio>
 ```
 
-El dominio del remitente debe estar verificado en Resend. `APP_BASE_URL` es la
-URL pública del sitio (con el `basePath` si corresponde) y se usa para armar el
-retorno del enlace de confirmación. Si falta, la función intenta usar el
-`Origin` de la petición; en producción conviene fijarla.
+Con Brevo no hace falta dominio: alcanza con verificar el remitente en Brevo y
+usar esa misma dirección en `REMINDER_FROM_EMAIL`. Brevo reescribe el remitente
+por uno de su dominio para cumplir con SPF y DMARC, así que el "De" no mostrará
+el dominio propio. Con Resend, en cambio, el dominio del remitente debe estar
+verificado. `APP_BASE_URL` es la URL pública del sitio (con el `basePath` si
+corresponde) y se usa para armar el retorno del enlace de confirmación. Si falta,
+la función intenta usar el `Origin` de la petición; en producción conviene
+fijarla.
 
 ### 6. Crear la primera barbería
 
@@ -274,8 +281,9 @@ src/
 supabase/
   migrations/            Esquema, RLS, RPC y marketplace multi-barbería
   functions/
+    _shared/email.ts      Envío de correos por Brevo o Resend
     admin-users/         Cuentas del equipo, acotadas por barbería
-    send-reminder/       Envío de recordatorios con Resend
+    send-reminder/       Envío de recordatorios
     shop-signup/         Alta autoservicio y confirmación por correo
 scripts/                 Provisión, seed y smoke test
 docs/                    Documentación de arquitectura y operación
@@ -296,8 +304,8 @@ docs/                    Documentación de arquitectura y operación
 - **Confirmación inmediata** con enlace único, resumen del turno, correo
   opcional para el recordatorio, descarga de calendario (`.ics`) y contacto por
   WhatsApp.
-- **Recordatorio real por correo** con Resend, disponible desde la confirmación
-  y desde el detalle de la cita en el panel.
+- **Recordatorio real por correo** con Brevo o Resend, disponible desde la
+  confirmación y desde el detalle de la cita en el panel.
 - **Panel multi-barbería** con agenda diaria, alta y edición de citas, ficha de
   clientes con historial e ideas de corte, catálogo de servicios, estadísticas y
   ajustes de la barbería.

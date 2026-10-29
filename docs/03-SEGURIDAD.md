@@ -59,7 +59,7 @@ sugerencia de interfaz.
 | Cuenta inactiva sigue entrando | `AuthProvider` cierra la sesión; RLS exige perfil activo vía `current_shop_id()` |
 | Autoregistro crea un empleado | `handle_new_user` crea el perfil con `active = false` y sin fallback de barbería; el registro público de Supabase debe seguir cerrado |
 | Escalada por la Edge Function | Verifica JWT, perfil `ADMIN` activo, mismo `shop_id`, última cuenta admin de la barbería y valida todos los campos |
-| Fuga de la clave de servicio o de Resend | Solo viven en el entorno de Supabase y en el `.env` local; nunca en `NEXT_PUBLIC_*` |
+| Fuga de la clave de servicio o del proveedor de correo | Solo viven en el entorno de Supabase y en el `.env` local; nunca en `NEXT_PUBLIC_*` |
 
 ## Matriz de acceso
 
@@ -168,15 +168,15 @@ Controles:
 4. Genera el enlace con `admin.generateLink({ type: "signup" })`; el trigger
    crea el perfil inactivo y la función lo deja `ADMIN`, `active = false`,
    `pending_signup = true`. No habilita el signup público de Supabase.
-5. Envía el enlace por Resend a `/confirmar/`.
+5. Envía el enlace por correo a `/confirmar/`.
 6. Si falla la cuenta, el perfil o el correo, revierte la barbería y el usuario.
 7. `resend` usa `generateLink({ type: "magiclink" })` para cuentas pendientes y
    responde igual exista o no la cuenta, para no enumerar correos.
 8. Nunca devuelve la contraseña, el enlace ni datos internos al navegador.
 
-Variables: `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`,
+Variables: `SUPABASE_SERVICE_ROLE_KEY`, `BREVO_API_KEY` o `RESEND_API_KEY`,
 `REMINDER_FROM_EMAIL`, `REMINDER_FROM_NAME` y `APP_BASE_URL`. La clave de
-servicio y la de Resend nunca salen del entorno de Supabase.
+servicio y las del proveedor de correo nunca salen del entorno de Supabase.
 
 ## Búsqueda pública
 
@@ -249,12 +249,13 @@ compartirse.
   agregarlo.
 - Aplica un enfriamiento de 2 minutos usando `reminder_sent_at`.
 - Lee el correo del cliente, pero nunca lo devuelve al navegador.
-- Si Resend falla, devuelve un mensaje genérico y no registra direcciones.
-- Marca `reminder_sent_at` solo después de que Resend acepta el envío.
+- Si el proveedor falla, devuelve un mensaje genérico y no registra direcciones.
+- Marca `reminder_sent_at` solo después de que el proveedor acepta el envío.
 
-Variables de la función: `RESEND_API_KEY`, `REMINDER_FROM_EMAIL` y, opcional,
-`REMINDER_FROM_NAME`. El remitente debe pertenecer a un dominio verificado en
-Resend.
+Variables de la función: `BREVO_API_KEY` o `RESEND_API_KEY`,
+`REMINDER_FROM_EMAIL` y, opcional, `REMINDER_FROM_NAME`. Brevo no exige dominio
+propio pero reescribe el remitente; con Resend el remitente debe pertenecer a un
+dominio verificado.
 
 ## Gestión de secretos
 
@@ -264,7 +265,7 @@ Resend.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Build y navegador | Público por diseño; RLS lo limita |
 | `SUPABASE_SERVICE_ROLE_KEY` | `.env` local + secrets de funciones | Scripts y Edge Functions |
 | `SUPABASE_DB_PASSWORD` | `.env` local | Migraciones por conexión directa |
-| `RESEND_API_KEY` | Secrets de la Edge Function | `send-reminder` y `shop-signup` |
+| `BREVO_API_KEY` o `RESEND_API_KEY` | Secrets de la Edge Function | `send-reminder` y `shop-signup` |
 | `REMINDER_FROM_EMAIL`, `REMINDER_FROM_NAME` | Secrets de la Edge Function | `send-reminder` y `shop-signup` |
 | `APP_BASE_URL` | Secrets de la Edge Function | `shop-signup`, para armar el retorno del enlace |
 | Secrets de GitHub | Repositorio > Settings > Secrets | `deploy.yml` |
@@ -272,10 +273,10 @@ Resend.
 Reglas:
 
 - Nunca prefijar un secreto con `NEXT_PUBLIC_`.
-- Nunca pegar una clave de servicio o de Resend en una consulta SQL, un issue o
-  un log.
+- Nunca pegar una clave de servicio o del proveedor de correo en una consulta
+  SQL, un issue o un log.
 - Rotar la clave afectada si se filtró (Supabase > Project Settings > API;
-  Resend > API Keys).
+  Brevo > SMTP & API > API Keys; Resend > API Keys).
 - El `.env` está ignorado por Git; `.env.example` solo contiene marcadores.
 
 ## Checklist antes de operar con clientes reales
@@ -291,8 +292,8 @@ Reglas:
 - [ ] Migraciones aplicadas, incluidas `20261029000000_multi_shop.sql` y
       `20261029120000_shop_signup.sql`.
 - [ ] Edge Functions `admin-users`, `send-reminder` y `shop-signup` desplegadas.
-- [ ] Dominio de envío verificado en Resend y variables configuradas con
-      `npx supabase secrets set`, incluida `APP_BASE_URL`.
+- [ ] Remitente verificado en Brevo o dominio verificado en Resend, y variables
+      configuradas con `npx supabase secrets set`, incluida `APP_BASE_URL`.
 - [ ] Al menos una barbería creada con `npm run db:create-shop` y su
       administrador probado.
 - [ ] Un alta completa probada: registro, correo, confirmación y publicación.
@@ -365,7 +366,8 @@ order by table_name;
    válido. Se puede restringir el origen si el despliegue tiene un dominio fijo.
 4. **Sin límite global de recordatorios.** El enfriamiento es por turno. Un
    atacante con muchos UUID válidos podría generar tráfico; el volumen depende
-   de cuántas reservas reales existan y Resend aplica sus propios límites.
+   de cuántas reservas reales existan y el proveedor de correo aplica sus propios
+   límites.
 5. **El panel confía en el filtrado del cliente para la experiencia.** La
    seguridad real está en RLS; un barbero que llame a la API directamente
    obtiene lo que las políticas permiten: el conjunto del personal de su
@@ -382,7 +384,8 @@ order by table_name;
 
 ## Respuesta a incidentes
 
-1. Rotar `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` y las claves de GitHub.
+1. Rotar `SUPABASE_SERVICE_ROLE_KEY`, la clave del proveedor de correo y las
+   claves de GitHub.
 2. Si el problema es una barbería concreta, poner `shops.active = false` o
    `shops.published = false`: la primera corta también el acceso del personal;
    la segunda solo la oculta del sitio público.

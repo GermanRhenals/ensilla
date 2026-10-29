@@ -272,7 +272,7 @@ La vía normal es el alta autoservicio: `/registro` llama a la Edge Function
 3. Crea el usuario de Auth con `admin.generateLink({ type: "signup" })`. El
    trigger `handle_new_user` crea el perfil inactivo y la función lo deja como
    `ADMIN`, `active = false`, `pending_signup = true`.
-4. Envía el enlace de confirmación por Resend.
+4. Envía el enlace de confirmación por correo (Brevo o Resend).
 5. Si falla la cuenta, el perfil o el correo, revierte la barbería y el usuario.
 
 Al abrir el enlace, `/confirmar/` llama a `confirm_shop_signup` y activa el
