@@ -60,8 +60,13 @@ remitente cuando ya hay uno verificado.
 1. Crear una cuenta en <https://www.brevo.com>.
 2. En Settings > Senders, agregar el correo remitente y confirmar el código de
    seis dígitos que llega a esa casilla.
-3. Crear una API key en Settings > SMTP & API > API Keys.
-4. Configurar los secretos:
+3. Crear una API key en Settings > SMTP & API > API Keys (empieza con
+   `xkeysib-`; la de SMTP no sirve).
+4. En Settings > Security > Authorised IPs, dejar **desactivado** el bloqueo de
+   IPs desconocidas. Brevo lo activa solo a los 30 días y las Edge Functions
+   salen por IPs que cambian en cada invocación: con el bloqueo prendido los
+   envíos fallan con `401 unrecognised IP address`. Autorizar una IP no alcanza.
+5. Configurar los secretos:
 
    ```bash
    npx supabase secrets set \

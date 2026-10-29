@@ -163,11 +163,13 @@ npx supabase secrets set \
 Con Brevo no hace falta dominio: alcanza con verificar el remitente en Brevo y
 usar esa misma dirección en `REMINDER_FROM_EMAIL`. Brevo reescribe el remitente
 por uno de su dominio para cumplir con SPF y DMARC, así que el "De" no mostrará
-el dominio propio. Con Resend, en cambio, el dominio del remitente debe estar
-verificado. `APP_BASE_URL` es la URL pública del sitio (con el `basePath` si
-corresponde) y se usa para armar el retorno del enlace de confirmación. Si falta,
-la función intenta usar el `Origin` de la petición; en producción conviene
-fijarla.
+el dominio propio. Además hay que dejar **desactivado** el bloqueo de IPs
+desconocidas en Security > Authorised IPs: las Edge Functions salen por IPs que
+cambian y, con el bloqueo prendido, el envío falla. Con Resend, en cambio, el
+dominio del remitente debe estar verificado. `APP_BASE_URL` es la URL pública del
+sitio (con el `basePath` si corresponde) y se usa para armar el retorno del
+enlace de confirmación. Si falta, la función intenta usar el `Origin` de la
+petición; en producción conviene fijarla.
 
 ### 6. Crear la primera barbería
 

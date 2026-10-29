@@ -193,6 +193,10 @@ operativo para quien edita el código.
   `REMINDER_FROM_EMAIL` y, opcionalmente, `REMINDER_FROM_NAME` en los secrets de
   Supabase. Brevo no exige dominio pero reescribe el remitente por uno suyo;
   Resend solo entrega a cualquier destinatario con el dominio verificado.
+- Brevo activa el bloqueo de IPs desconocidas a los 30 días de uso. Debe quedar
+  desactivado en Security > Authorised IPs: las Edge Functions salen por IPs que
+  cambian y, con el bloqueo prendido, el envío falla con `401 unrecognised IP
+  address`. Autorizar una IP suelta no lo resuelve.
 - La clave de servicio y las del proveedor de correo nunca llevan prefijo
   `NEXT_PUBLIC_`.
 
